@@ -1,0 +1,31 @@
+{
+  "name": "niftyicifalgo",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kunalrbhatia/niftyicifalgo.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/kunalrbhatia/niftyicifalgo/issues"
+  },
+  "homepage": "https://github.com/kunalrbhatia/niftyicifalgo#readme",
+  "dependencies": {
+    "axios": "^1.15.0",
+    "dotenv": "^17.4.1",
+    "moment-timezone": "^0.6.1",
+    "node-cron": "^4.2.1",
+    "nse-market-holidays": "^0.0.4",
+    "otplib": "^13.4.0",
+    "winston": "^3.19.0",
+    "ws": "^8.20.0"
+  }
+}
