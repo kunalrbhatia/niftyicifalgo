@@ -63,7 +63,7 @@ async function main() {
     logger.info('=== Algo Completed for Today ===');
     process.exit(0);
   } catch (error) {
-    logger.error('Fatal error in main:', error.message);
+    logger.error('Fatal error in main:', error);
     process.exit(1);
   }
 }
