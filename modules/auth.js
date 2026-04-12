@@ -1,5 +1,5 @@
 const axios = require('axios');
-const { authenticator } = require('otplib');
+const { generateSync, createGuardrails } = require('otplib');
 const logger = require('../utils/logger');
 require('dotenv').config();
 
@@ -9,12 +9,20 @@ require('dotenv').config();
  */
 async function login() {
   try {
-    const totp = authenticator.generate(process.env.ANGEL_TOTP_SECRET);
+    const secret = process.env.ANGEL_TOTP_SECRET;
+    // Base32 16 chars = 10 bytes. otplib v13 defaults to 16 bytes min.
+    // We adjust guardrails to allow common broker secret lengths.
+    const token = generateSync({ 
+      secret,
+      guardrails: createGuardrails({
+        MIN_SECRET_BYTES: Math.min(10, secret.length) 
+      })
+    });
     
     const payload = {
       clientcode: process.env.ANGEL_CLIENT_ID,
       password: process.env.ANGEL_PASSWORD,
-      totp: totp
+      totp: token
     };
 
     const headers = {
