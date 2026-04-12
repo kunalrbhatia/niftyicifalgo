@@ -1,6 +1,6 @@
-const { getNiftySpotPrice } = require('./optionChain');
+const optionChain = require('./optionChain');
 const { getPosition } = require('./positionTracker');
-const { exitLeg } = require('./orderManager');
+const orderManager = require('./orderManager');
 const logger = require('../utils/logger');
 require('dotenv').config();
 
@@ -10,7 +10,7 @@ require('dotenv').config();
  */
 async function runFinalExitCheck(jwtToken) {
   try {
-    const spotPrice = await getNiftySpotPrice(jwtToken);
+    const spotPrice = await optionChain.getNiftySpotPrice(jwtToken);
     const state = getPosition();
     const quantity = (parseInt(process.env.LOTS) || 2) * 25;
 
@@ -18,19 +18,11 @@ async function runFinalExitCheck(jwtToken) {
 
     const legsToProcess = [];
 
-    // Add standard legs
+    // Standard legs + adjusted legs are all in state.legs
     for (const [name, leg] of Object.entries(state.legs)) {
       if (leg && leg.status === 'OPEN') {
         legsToProcess.push({ name, ...leg });
       }
-    }
-
-    // Add adjusted legs if any
-    if (state.legs.newAtmCall && state.legs.newAtmCall.status === 'OPEN') {
-      legsToProcess.push({ name: 'newAtmCall', ...state.legs.newAtmCall });
-    }
-    if (state.legs.newAtmPut && state.legs.newAtmPut.status === 'OPEN') {
-      legsToProcess.push({ name: 'newAtmPut', ...state.legs.newAtmPut });
     }
 
     for (const leg of legsToProcess) {
@@ -43,7 +35,7 @@ async function runFinalExitCheck(jwtToken) {
 
       if (isITM) {
         logger.info(`Exiting ITM Leg: ${leg.tradingSymbol} (Strike: ${leg.strike})`);
-        await exitLeg(jwtToken, { 
+        await orderManager.exitLeg(jwtToken, { 
           tradingSymbol: leg.tradingSymbol, 
           token: leg.token, 
           transactionType: leg.transactionType, 

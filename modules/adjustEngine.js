@@ -1,5 +1,5 @@
-const { getOptionChain, getNiftySpotPrice } = require('./optionChain');
-const { placeOrder } = require('./orderManager');
+const optionChain = require('./optionChain');
+const orderManager = require('./orderManager');
 const { markAdjusted, getPosition } = require('./positionTracker');
 const logger = require('../utils/logger');
 require('dotenv').config();
@@ -17,8 +17,8 @@ async function adjustCallSide(jwtToken) {
 
     logger.info('PUT wall hit. Adjusting CALL side to ATM...');
     
-    const spotPrice = await getNiftySpotPrice(jwtToken);
-    const chain = await getOptionChain(jwtToken);
+    const spotPrice = await optionChain.getNiftySpotPrice(jwtToken);
+    const chain = await optionChain.getOptionChain(jwtToken);
     
     // Find ATM CALL strike
     const atmCall = chain
@@ -30,7 +30,7 @@ async function adjustCallSide(jwtToken) {
     const quantity = (parseInt(process.env.LOTS) || 2) * 25;
 
     // 1. Buy back existing BUY CALL wing
-    await placeOrder(jwtToken, { 
+    await orderManager.placeOrder(jwtToken, { 
       tradingSymbol: state.legs.buyCall.tradingSymbol, 
       token: state.legs.buyCall.token, 
       transactionType: 'BUY', 
@@ -38,7 +38,7 @@ async function adjustCallSide(jwtToken) {
     });
 
     // 2. Sell new ATM CALL
-    const orderId = await placeOrder(jwtToken, { 
+    const orderId = await orderManager.placeOrder(jwtToken, { 
       tradingSymbol: atmCall.tradingSymbol, 
       token: atmCall.symbolToken, 
       transactionType: 'SELL', 
@@ -71,8 +71,8 @@ async function adjustPutSide(jwtToken) {
 
     logger.info('CALL wall hit. Adjusting PUT side to ATM...');
 
-    const spotPrice = await getNiftySpotPrice(jwtToken);
-    const chain = await getOptionChain(jwtToken);
+    const spotPrice = await optionChain.getNiftySpotPrice(jwtToken);
+    const chain = await optionChain.getOptionChain(jwtToken);
 
     // Find ATM PUT strike
     const atmPut = chain
@@ -84,7 +84,7 @@ async function adjustPutSide(jwtToken) {
     const quantity = (parseInt(process.env.LOTS) || 2) * 25;
 
     // 1. Buy back existing BUY PUT wing
-    await placeOrder(jwtToken, { 
+    await orderManager.placeOrder(jwtToken, { 
       tradingSymbol: state.legs.buyPut.tradingSymbol, 
       token: state.legs.buyPut.token, 
       transactionType: 'BUY', 
@@ -92,7 +92,7 @@ async function adjustPutSide(jwtToken) {
     });
 
     // 2. Sell new ATM PUT
-    const orderId = await placeOrder(jwtToken, { 
+    const orderId = await orderManager.placeOrder(jwtToken, { 
       tradingSymbol: atmPut.tradingSymbol, 
       token: atmPut.symbolToken, 
       transactionType: 'SELL', 
