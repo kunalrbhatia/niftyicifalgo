@@ -6,6 +6,19 @@ require('dotenv').config();
 
 const BASE_URL = 'https://apiconnect.angelone.in';
 
+const commonHeaders = (jwtToken) => ({
+  'Authorization': `Bearer ${jwtToken}`,
+  'Content-Type': 'application/json',
+  'Accept': 'application/json',
+  'X-UserType': 'USER',
+  'X-SourceID': 'WEB',
+  'X-ClientLocalIP': '127.0.0.1',
+  'X-ClientPublicIP': '106.193.147.98',
+  'X-MACAddress': '02:00:00:00:00:00',
+  'X-PrivateKey': process.env.ANGEL_API_KEY,
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+});
+
 /**
  * Fetch live Nifty 50 spot price.
  * @param {string} jwtToken 
@@ -15,24 +28,16 @@ async function getNiftySpotPrice(jwtToken) {
   try {
     const payload = {
       exchange: 'NSE',
-      tradingsymbol: 'Nifty 50',
-      symboltoken: '99926000'
+      symboltoken: '99926000',
+      tradingsymbol: 'Nifty 50'
     };
 
-    const headers = {
-      'Authorization': `Bearer ${jwtToken}`,
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      'X-UserType': 'USER',
-      'X-SourceID': 'WEB',
-      'X-PrivateKey': process.env.ANGEL_API_KEY
-    };
-
-    const response = await axios.post(`${BASE_URL}/rest/secure/angelbroking/order/v1/getLtpData`, payload, { headers });
+    const response = await axios.post(`${BASE_URL}/rest/secure/angelbroking/order/v1/getLtpData`, payload, { headers: commonHeaders(jwtToken) });
     
     if (response.data.status === true) {
       return response.data.data.ltp;
     } else {
+      logger.error('Full SmartAPI LTP Error Response: ' + JSON.stringify(response.data));
       throw new Error(`Failed to fetch Nifty spot price: ${response.data.message}`);
     }
   } catch (error) {
@@ -55,8 +60,6 @@ async function getExpiryDate() {
   } else if (dayOfWeek === 1) {
     expiryDate = today.clone().add(1, 'day');
   } else {
-    // If it's not Monday or Tuesday, this shouldn't be running on expiry day
-    // But for robustness, let's find the *next* Tuesday
     expiryDate = today.clone().add((2 - dayOfWeek + 7) % 7, 'days');
   }
 
@@ -78,22 +81,12 @@ async function getOptionChain(jwtToken) {
       expirydate: expiry
     };
 
-    const headers = {
-      'Authorization': `Bearer ${jwtToken}`,
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      'X-UserType': 'USER',
-      'X-SourceID': 'WEB',
-      'X-PrivateKey': process.env.ANGEL_API_KEY
-    };
-
-    const response = await axios.post(`${BASE_URL}/rest/secure/angelbroking/marketData/v1/optionChain`, payload, { headers });
+    const response = await axios.post(`${BASE_URL}/rest/secure/angelbroking/marketData/v1/optionChain`, payload, { headers: commonHeaders(jwtToken) });
 
     if (response.data.status === true) {
       const chain = response.data.data;
       const formattedChain = [];
 
-      // Time to expiry in years (assuming 15:30 as market close)
       const now = moment().tz('Asia/Kolkata');
       const expiryTime = moment().tz('Asia/Kolkata').set({
         hour: 15, minute: 30, second: 0, millisecond: 0
@@ -132,6 +125,7 @@ async function getOptionChain(jwtToken) {
 
       return formattedChain;
     } else {
+      logger.error('Full SmartAPI Option Chain Error Response: ' + JSON.stringify(response.data));
       throw new Error(`Failed to fetch option chain: ${response.data.message}`);
     }
   } catch (error) {
