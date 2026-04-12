@@ -32,7 +32,7 @@ async function placeOrder(jwtToken, { tradingSymbol, token, transactionType, qua
       'X-UserType': 'USER',
       'X-SourceID': 'WEB',
       'X-ClientLocalIP': '127.0.0.1',
-      'X-ClientPublicIP': '106.193.147.98',
+      'X-ClientPublicIP': '152.59.7.153',
       'X-MACAddress': '02:00:00:00:00:00',
       'X-PrivateKey': process.env.ANGEL_API_KEY,
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -104,7 +104,7 @@ async function getOrderStatus(jwtToken, orderId) {
       'X-UserType': 'USER',
       'X-SourceID': 'WEB',
       'X-ClientLocalIP': '127.0.0.1',
-      'X-ClientPublicIP': '106.193.147.98',
+      'X-ClientPublicIP': '152.59.7.153',
       'X-MACAddress': '02:00:00:00:00:00',
       'X-PrivateKey': process.env.ANGEL_API_KEY,
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
