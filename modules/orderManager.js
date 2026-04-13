@@ -64,13 +64,13 @@ async function placeIronCondorEntry(jwtToken, strikes) {
 
   logger.info(`Placing Iron Condor entry orders for ${quantity} quantity...`);
 
-  // To reduce impact of slippage, we usually place SELL orders before BUY (or vice versa depending on margin)
-  // Here we place them in order: Sell Put, Buy Put, Sell Call, Buy Call
+  // To provide margin benefit, we must place BUY orders (hedges) before SELL orders
+  // The sequence is: Buy Put, Buy Call, then Sell Put, Sell Call
   const orderIds = {
-    sellPut: await placeOrder(jwtToken, { ...strikes.sellPut, transactionType: 'SELL', quantity }),
     buyPut: await placeOrder(jwtToken, { ...strikes.buyPut, transactionType: 'BUY', quantity }),
-    sellCall: await placeOrder(jwtToken, { ...strikes.sellCall, transactionType: 'SELL', quantity }),
     buyCall: await placeOrder(jwtToken, { ...strikes.buyCall, transactionType: 'BUY', quantity }),
+    sellPut: await placeOrder(jwtToken, { ...strikes.sellPut, transactionType: 'SELL', quantity }),
+    sellCall: await placeOrder(jwtToken, { ...strikes.sellCall, transactionType: 'SELL', quantity }),
   };
 
   return orderIds;

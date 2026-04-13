@@ -34,24 +34,38 @@ async function main() {
     const { jwtToken } = session;
     logger.info('Login successful.');
 
-    // STEP 4: Fetch option chain + find strikes
-    logger.info('Fetching option chain...');
-    const chain = await getOptionChain(jwtToken);
-    const initialStrikes = findStrikes(chain);
-    logger.info('Identifying tokens and LTP for strikes...');
-    const { enrichStrikes } = require('./modules/optionChain');
-    const strikes = await enrichStrikes(jwtToken, initialStrikes);
-    logger.info('Strikes identified and enriched:', strikes);
+    // NEW: Check if positions already exist to avoid redundant entry on restart
+    const { hasOpenPositions, reconstructState } = require('./modules/positionTracker');
+    const positionsExist = await hasOpenPositions(jwtToken);
+    if (positionsExist) {
+      logger.warn('Detected existing Nifty positions for today.');
+      const success = await reconstructState(jwtToken);
+      if (success) {
+        logger.info('Successfully reconstructed state. Resuming monitoring...');
+        startMonitoring(jwtToken);
+      } else {
+        logger.error('Failed to reconstruct state from positions. Monitoring will NOT start.');
+      }
+    } else {
+      // STEP 4: Fetch option chain + find strikes
+      logger.info('Fetching option chain...');
+      const chain = await getOptionChain(jwtToken);
+      const initialStrikes = findStrikes(chain);
+      logger.info('Identifying tokens and LTP for strikes...');
+      const { enrichStrikes } = require('./modules/optionChain');
+      const strikes = await enrichStrikes(jwtToken, initialStrikes);
+      logger.info('Strikes identified and enriched:', strikes);
 
-    // STEP 5: Place Iron Condor entry (4 legs)
-    logger.info('Placing Iron Condor orders...');
-    const orderIds = await placeIronCondorEntry(jwtToken, strikes);
-    initPosition(strikes, orderIds);
-    logger.info('Orders placed. Position initiated.');
+      // STEP 5: Place Iron Condor entry (4 legs)
+      logger.info('Placing Iron Condor orders...');
+      const orderIds = await placeIronCondorEntry(jwtToken, strikes);
+      initPosition(strikes, orderIds);
+      logger.info('Orders placed. Position initiated.');
 
-    // STEP 6: Start wall monitoring loop
-    logger.info('Starting wall monitor...');
-    startMonitoring(jwtToken);
+      // STEP 6: Start wall monitoring loop
+      logger.info('Starting wall monitor...');
+      startMonitoring(jwtToken);
+    }
 
     // STEP 7: Wait until 15:25 (Final Exit)
     while (!isTimeReached(process.env.EXIT_CHECK_TIME || '15:25')) {

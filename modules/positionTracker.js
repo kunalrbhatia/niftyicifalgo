@@ -1,3 +1,9 @@
+const axios = require('axios');
+const logger = require('../utils/logger');
+require('dotenv').config();
+
+const BASE_URL = 'https://apiconnect.angelone.in';
+
 let state = {
   entryTime: null,
   expiryDate: null,
@@ -23,6 +29,156 @@ function initPosition(strikes, orderIds) {
   state.legs.buyPut = { ...strikes.buyPut, transactionType: 'BUY', orderId: orderIds.buyPut, status: 'OPEN' };
   state.legs.sellCall = { ...strikes.sellCall, transactionType: 'SELL', orderId: orderIds.sellCall, status: 'OPEN' };
   state.legs.buyCall = { ...strikes.buyCall, transactionType: 'BUY', orderId: orderIds.buyCall, status: 'OPEN' };
+}
+
+/**
+ * Fetch open positions from SmartAPI and check if any Nifty options for today's expiry are open.
+ * @param {string} jwtToken 
+ * @returns {Promise<boolean>} - true if an Iron Condor or any relevant position exists.
+ */
+async function hasOpenPositions(jwtToken) {
+  try {
+    const headers = {
+      'Authorization': `Bearer ${jwtToken}`,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'X-UserType': 'USER',
+      'X-SourceID': 'WEB',
+      'X-ClientLocalIP': '127.0.0.1',
+      'X-ClientPublicIP': process.env.ANGEL_PUBLIC_IP || '103.160.108.203',
+      'X-MACAddress': '02:00:00:00:00:00',
+      'X-PrivateKey': process.env.ANGEL_API_KEY,
+      'User-Agent': 'Mozilla/5.0'
+    };
+
+    const response = await axios.get(`${BASE_URL}/rest/secure/angelbroking/order/v1/getPosition`, { headers });
+
+    if (response.data.status === true) {
+      const positions = response.data.data;
+      if (!positions) return false;
+
+      const moment = require('moment-timezone');
+      const todayTag = moment().tz('Asia/Kolkata').format('DDMMMYY').toUpperCase(); // e.g. 13APR26 -> 13APR26
+
+      // Simple check: Any NIFTY position with today's date in trading symbol
+      const relevantPositions = positions.filter(p => 
+        p.tradingsymbol.startsWith('NIFTY') && 
+        p.tradingsymbol.includes(todayTag) && 
+        parseInt(p.netqty) !== 0
+      );
+
+      return relevantPositions.length > 0;
+    }
+    return false;
+  } catch (error) {
+    logger.error('Error checking open positions:', error.message);
+    return false; // Safest to assume false and let entry logic handle it, or maybe true to avoid double entry?
+    // Actually, if API fails, we probably shouldn't place new orders.
+  }
+}
+
+/**
+ * Reconstruct the internal state from live positions.
+ * @param {string} jwtToken 
+ * @returns {Promise<boolean>} - true if state was reconstructed
+ */
+async function reconstructState(jwtToken) {
+  try {
+    const headers = {
+      'Authorization': `Bearer ${jwtToken}`,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'X-UserType': 'USER',
+      'X-SourceID': 'WEB',
+      'X-ClientLocalIP': '127.0.0.1',
+      'X-ClientPublicIP': process.env.ANGEL_PUBLIC_IP || '103.160.108.203',
+      'X-MACAddress': '02:00:00:00:00:00',
+      'X-PrivateKey': process.env.ANGEL_API_KEY,
+      'User-Agent': 'Mozilla/5.0'
+    };
+
+    const response = await axios.get(`${BASE_URL}/rest/secure/angelbroking/order/v1/getPosition`, { headers });
+
+    if (response.data.status === true && response.data.data) {
+      const positions = response.data.data;
+      const moment = require('moment-timezone');
+      const todayTag = moment().tz('Asia/Kolkata').format('DDMMMYY').toUpperCase();
+
+      const relevant = positions.filter(p => 
+        p.tradingsymbol.startsWith('NIFTY') && 
+        p.tradingsymbol.includes(todayTag) && 
+        parseInt(p.netqty) !== 0
+      );
+
+      if (relevant.length === 0) return false;
+
+      logger.info(`Reconstructing state from ${relevant.length} live positions...`);
+      
+      // Reset state legs
+      state.legs = {
+        sellPut:  null,
+        buyPut:   null,
+        sellCall: null,
+        buyCall:  null,
+      };
+
+      relevant.forEach(p => {
+        const qty = parseInt(p.netqty);
+        const symbol = p.tradingsymbol;
+        const isCall = symbol.endsWith('CE');
+        const isPut = symbol.endsWith('PE');
+        const strike = parseInt(symbol.match(/\d+$/)[0].slice(0, -2)) || parseInt(symbol.match(/(\d+)(CE|PE)$/)[1]);
+        
+        // Accurate strike extraction: NIFTY13APR2623900CE -> 23900
+        const strikeMatch = symbol.match(/(\d+)(CE|PE)$/);
+        const extractedStrike = strikeMatch ? parseInt(strikeMatch[1]) : 0;
+
+        const legData = {
+          tradingSymbol: symbol,
+          token: p.symboltoken,
+          strike: extractedStrike,
+          quantity: Math.abs(qty),
+          transactionType: qty > 0 ? 'BUY' : 'SELL',
+          status: 'OPEN'
+        };
+
+        if (isPut) {
+          if (qty < 0) {
+            // If we have two sell puts, the one further away might be the original wall
+            // But usually we'd only have one unless adjusted.
+            if (!state.legs.sellPut) state.legs.sellPut = legData;
+            else state.legs.newAtmPut = legData; // if already adjusted
+          } else {
+            state.legs.buyPut = legData;
+          }
+        } else if (isCall) {
+          if (qty < 0) {
+            if (!state.legs.sellCall) state.legs.sellCall = legData;
+            else state.legs.newAtmCall = legData;
+          } else {
+            state.legs.buyCall = legData;
+          }
+        }
+      });
+
+      // Detect if adjusted
+      if (state.legs.newAtmCall) {
+        state.adjusted = true;
+        state.wallHitSide = 'PUT'; // PUT wall was hit, CALL side adjusted
+      } else if (state.legs.newAtmPut) {
+        state.adjusted = true;
+        state.wallHitSide = 'CALL'; // CALL wall was hit, PUT side adjusted
+      }
+
+      state.entryTime = new Date(); // Approximate
+      logger.info('State reconstructed successfully:', JSON.stringify(state.legs, null, 2));
+      return true;
+    }
+    return false;
+  } catch (error) {
+    logger.error('Error during state reconstruction:', error.message);
+    return false;
+  }
 }
 
 /**
@@ -67,5 +223,7 @@ module.exports = {
   initPosition,
   markAdjusted,
   getPosition,
-  updateLegStatus
+  updateLegStatus,
+  hasOpenPositions,
+  reconstructState
 };
