@@ -1,5 +1,6 @@
-.env
 node_modules
+.env
 logs/*.log
-.DS_Store
-package-lock.json
+scrip_master.json
+nifty_expiry_master.json
+filter_scrips.js

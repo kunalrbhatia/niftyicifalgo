@@ -31,7 +31,7 @@ async function login() {
       'X-UserType': 'USER',
       'X-SourceID': 'WEB',
       'X-ClientLocalIP': '127.0.0.1',
-      'X-ClientPublicIP': '152.59.7.153', // Updated with actual public IP
+      'X-ClientPublicIP': process.env.ANGEL_PUBLIC_IP || '103.160.108.203',
       'X-MACAddress': '02:00:00:00:00:00', // Use your server's MAC address
       'X-PrivateKey': process.env.ANGEL_API_KEY
     };

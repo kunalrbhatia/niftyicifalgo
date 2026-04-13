@@ -37,7 +37,7 @@ function startMonitoring(jwtToken) {
         stopMonitoring();
       }
     } catch (error) {
-      logger.error('Error in wall monitor loop:', error.message);
+      logger.error(`Error in wall monitor loop: ${error.message}`);
     }
   }, 60 * 1000); // 1 minute
 }

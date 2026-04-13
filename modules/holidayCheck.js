@@ -1,4 +1,3 @@
-const { isTradingDay } = require('nse-market-holidays');
 const moment = require('moment-timezone');
 const logger = require('../utils/logger');
 
@@ -11,19 +10,33 @@ async function isTodayExpiryDay() {
   const todayStr = today.format('YYYY-MM-DD');
   const dayOfWeek = today.day(); // 0 (Sun) to 6 (Sat)
 
-  // 1. Helper for holiday check with fallback
-  const checkIsTradingDay = async (dateStr) => {
-    try {
-      return await isTradingDay(dateStr);
-    } catch (error) {
-      // Fallback logic for when NSE website structure changes (causing library 404s)
-      const day = moment(dateStr).day();
-      // Simple fallback: If it's Saturday (6) or Sunday (0), it's not a trading day
-      return !(day === 0 || day === 6);
+  // 1. Helper for holiday check (Manual List for 2026)
+  const checkIsTradingDay = (dateStr) => {
+    const nseHolidays2026 = [
+      '2026-01-26', // Republic Day
+      '2026-03-03', // Holi
+      '2026-03-26', // Shri Ram Navami
+      '2026-03-31', // Shri Mahavir Jayanti
+      '2026-04-03', // Good Friday
+      '2026-04-14', // Dr. Ambedkar Jayanti
+      '2026-05-01', // Maharashtra Day
+      '2026-05-28', // Bakri Id
+      '2026-06-26', // Muharram
+      '2026-10-02', // Mahatma Gandhi Jayanti
+      '2026-10-20', // Dussehra
+      '2026-12-25', // Christmas
+    ];
+
+    if (nseHolidays2026.includes(dateStr)) {
+      return false;
     }
+
+    const day = moment(dateStr).day();
+    // Weekend check
+    return !(day === 0 || day === 6);
   };
 
-  const isTodayTrading = await checkIsTradingDay(todayStr);
+  const isTodayTrading = checkIsTradingDay(todayStr);
 
   // If today is NOT a trading day, it can't be an expiry day
   if (!isTodayTrading) {
@@ -42,7 +55,7 @@ async function isTodayExpiryDay() {
   // Case B: Today is Monday, and next Tuesday is a holiday
   if (dayOfWeek === 1) {
     const nextTuesday = today.clone().add(1, 'day');
-    const isTuesdayTrading = await checkIsTradingDay(nextTuesday.format('YYYY-MM-DD'));
+    const isTuesdayTrading = checkIsTradingDay(nextTuesday.format('YYYY-MM-DD'));
     if (!isTuesdayTrading) {
       return true;
     }

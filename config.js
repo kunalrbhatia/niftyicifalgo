@@ -3,8 +3,8 @@ module.exports = {
   // Strategy
   sellDelta: parseInt(process.env.SELL_DELTA) || 25,   // Short strike delta
   buyDelta: parseInt(process.env.BUY_DELTA) || 17,     // Wing delta
-  lots: parseInt(process.env.LOTS) || 2,               // 1 lot = 25 qty as per 2025-26 NSE update
-  lotSize: 25,                                          
+  lots: parseInt(process.env.LOTS) || 2,               // 1 lot = 65 qty as per 2025-26 NSE update
+  lotSize: parseInt(process.env.LOT_SIZE) || 65,                                          
 
   // Timing (IST — 24hr format)
   entryTime: process.env.ENTRY_TIME || '09:30',         // Place orders at

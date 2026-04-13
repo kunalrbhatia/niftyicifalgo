@@ -13,7 +13,7 @@ const commonHeaders = (jwtToken) => ({
   'X-UserType': 'USER',
   'X-SourceID': 'WEB',
   'X-ClientLocalIP': '127.0.0.1',
-  'X-ClientPublicIP': '152.59.7.153',
+  'X-ClientPublicIP': process.env.ANGEL_PUBLIC_IP || '103.160.108.203',
   'X-MACAddress': '02:00:00:00:00:00',
   'X-PrivateKey': process.env.ANGEL_API_KEY,
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -37,22 +37,45 @@ const exportsObj = {
         throw new Error(`Failed to fetch Nifty spot price: ${response.data.message}`);
       }
     } catch (error) {
-      logger.error('Error fetching Nifty spot price:', error.message);
+      logger.error(`Error fetching Nifty spot price: ${error.message}`);
       throw error;
     }
   },
 
   getExpiryDate: async function() {
     const today = moment().tz('Asia/Kolkata');
-    const dayOfWeek = today.day();
-    let expiryDate;
+    const todayStr = today.format('YYYY-MM-DD');
+    
+    const nseHolidays2026 = [
+      '2026-01-26', '2026-03-03', '2026-03-26', '2026-03-31', '2026-04-03', 
+      '2026-04-14', '2026-05-01', '2026-05-28', '2026-06-26', '2026-10-02', 
+      '2026-10-20', '2026-12-25',
+    ];
 
-    if (dayOfWeek === 2) {
-      expiryDate = today;
-    } else if (dayOfWeek === 1) {
-      expiryDate = today.clone().add(1, 'day');
-    } else {
-      expiryDate = today.clone().add((2 - dayOfWeek + 7) % 7, 'days');
+    const isHoliday = (dateStr) => nseHolidays2026.includes(dateStr);
+
+    let expiryDate = today.clone().tz('Asia/Kolkata');
+    const dayOfWeek = expiryDate.day();
+
+    // Find next Tuesday
+    let daysToTuesday = (2 - dayOfWeek + 7) % 7;
+    expiryDate.add(daysToTuesday, 'days');
+
+    // If that Tuesday is a holiday, move to Monday
+    if (isHoliday(expiryDate.format('YYYY-MM-DD'))) {
+      expiryDate.subtract(1, 'days');
+    }
+    
+    // If today is past that expiryDate, we should find the NEXT weekly expiry
+    // But since the algo only runs on expiry day, we can assume we want THIS week's expiry.
+    // However, for robustness:
+    if (today.isAfter(expiryDate, 'day')) {
+        // This shouldn't happen if called on expiry day, but let's be safe
+        expiryDate.add(7, 'days');
+        // Re-check holiday for next week's Tuesday
+        if (isHoliday(expiryDate.format('YYYY-MM-DD'))) {
+            expiryDate.subtract(1, 'days');
+        }
     }
 
     return expiryDate.format('DDMMMYYYY').toUpperCase();
@@ -60,54 +83,28 @@ const exportsObj = {
 
   getOptionChain: async function(jwtToken) {
     try {
-      const spotPrice = await this.getNiftySpotPrice(jwtToken);
-      const expiry = await this.getExpiryDate();
+      const spotPrice = await exportsObj.getNiftySpotPrice(jwtToken);
+      const expiry = await exportsObj.getExpiryDate();
 
       const payload = {
         name: 'NIFTY',
         expirydate: expiry
       };
 
-      const response = await axios.post(`${BASE_URL}/rest/secure/angelbroking/marketData/v1/optionChain`, payload, { headers: commonHeaders(jwtToken) });
+      const response = await axios.post(`${BASE_URL}/rest/secure/angelbroking/marketData/v1/optionGreek`, payload, { headers: commonHeaders(jwtToken) });
 
       if (response.data.status === true) {
         const chain = response.data.data;
         const formattedChain = [];
 
-        const now = moment().tz('Asia/Kolkata');
-        const expiryTime = moment().tz('Asia/Kolkata').set({
-          hour: 15, minute: 30, second: 0, millisecond: 0
-        });
-        const T = Math.max(0.0001, expiryTime.diff(now, 'years', true));
-        const r = 0.065;
-
         chain.forEach(item => {
-          const ce = item.callOptions;
-          const pe = item.putOptions;
-
-          if (ce) {
-            formattedChain.push({
-              strikePrice: parseFloat(item.strikePrice),
-              optionType: 'CE',
-              tradingSymbol: ce.tradingSymbol,
-              symbolToken: ce.symbolToken,
-              ltp: parseFloat(ce.ltp),
-              iv: parseFloat(ce.impliedVolatility) || 0.15,
-              delta: parseFloat(ce.delta) || calculateDelta('CE', spotPrice, parseFloat(item.strikePrice), T, r, parseFloat(ce.impliedVolatility) || 0.15)
-            });
-          }
-
-          if (pe) {
-            formattedChain.push({
-              strikePrice: parseFloat(item.strikePrice),
-              optionType: 'PE',
-              tradingSymbol: pe.tradingSymbol,
-              symbolToken: pe.symbolToken,
-              ltp: parseFloat(pe.ltp),
-              iv: parseFloat(pe.impliedVolatility) || 0.15,
-              delta: parseFloat(pe.delta) || calculateDelta('PE', spotPrice, parseFloat(item.strikePrice), T, r, parseFloat(pe.impliedVolatility) || 0.15)
-            });
-          }
+          formattedChain.push({
+            strikePrice: parseFloat(item.strikePrice),
+            optionType: item.optionType, // 'CE' or 'PE'
+            delta: parseFloat(item.delta),
+            iv: parseFloat(item.impliedVolatility) || 0.15,
+            expiry: item.expiry
+          });
         });
 
         return formattedChain;
@@ -119,6 +116,72 @@ const exportsObj = {
       logger.error('Error fetching option chain:', error.message);
       throw error;
     }
+  },
+
+  enrichStrikes: async function(jwtToken, strikes) {
+    const fs = require('fs');
+    const path = require('path');
+    const masterPath = path.join(__dirname, '../nifty_expiry_master.json');
+    
+    if (!fs.existsSync(masterPath)) {
+      throw new Error('Nifty expiry master file not found. Please run filter_scrips.js first.');
+    }
+
+    const master = JSON.parse(fs.readFileSync(masterPath, 'utf8'));
+    const keys = ['sellPut', 'buyPut', 'sellCall', 'buyCall'];
+    const enriched = {};
+
+    for (const key of keys) {
+      const leg = strikes[key];
+      const strike = leg.strike;
+      const type = key.includes('Put') ? 'PE' : 'CE';
+      
+      // Filter master for this strike and type
+      // Match strike and ensure symbol ends with the type
+      const match = master.find(s => 
+        (parseFloat(s.strike) / 100 === strike || parseFloat(s.strike) === strike) && 
+        s.symbol.endsWith(type)
+      );
+
+      if (match) {
+        enriched[key] = {
+          strike: strike,
+          tradingSymbol: match.symbol,
+          token: match.token,
+          delta: leg.delta,
+          ltp: 0 // Will fill later
+        };
+      } else {
+        throw new Error(`Failed to find security info for ${strike} ${type} in master file.`);
+      }
+    }
+
+    // Batch LTP Fetching
+    const tokens = Object.values(enriched).map(e => e.token);
+    logger.info(`Fetching LTP for tokens: ${tokens.join(', ')}`);
+    
+    // Using marketData V1 with mode: LTP
+    const marketDataPayload = {
+      mode: 'LTP',
+      exchangeTokens: {
+        'NFO': tokens
+      }
+    };
+
+    const marketDataResponse = await axios.post(`${BASE_URL}/rest/secure/angelbroking/market/v1/quote/`, marketDataPayload, { headers: commonHeaders(jwtToken) });
+
+    if (marketDataResponse.data.status === true && marketDataResponse.data.data.fetched) {
+      marketDataResponse.data.data.fetched.forEach(item => {
+        const key = Object.keys(enriched).find(k => enriched[k].token === item.symbolToken);
+        if (key) {
+          enriched[key].ltp = item.ltp;
+        }
+      });
+    } else {
+      logger.error('Market data fetch failed, using LTP 0. Response: ' + JSON.stringify(marketDataResponse.data));
+    }
+
+    return enriched;
   }
 };
 

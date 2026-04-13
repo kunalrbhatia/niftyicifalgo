@@ -37,8 +37,11 @@ async function main() {
     // STEP 4: Fetch option chain + find strikes
     logger.info('Fetching option chain...');
     const chain = await getOptionChain(jwtToken);
-    const strikes = findStrikes(chain);
-    logger.info('Strikes identified:', strikes);
+    const initialStrikes = findStrikes(chain);
+    logger.info('Identifying tokens and LTP for strikes...');
+    const { enrichStrikes } = require('./modules/optionChain');
+    const strikes = await enrichStrikes(jwtToken, initialStrikes);
+    logger.info('Strikes identified and enriched:', strikes);
 
     // STEP 5: Place Iron Condor entry (4 legs)
     logger.info('Placing Iron Condor orders...');
