@@ -32,7 +32,10 @@ async function main() {
     const positionsExist = await hasOpenPositions(jwtToken);
     
     if (positionsExist) {
-      logger.info('Existing Nifty positions detected. Reconstructing state...');
+      logger.info('Existing Nifty positions detected. Waiting 1.2s to respect rate limits...');
+      await sleep(1200);
+      
+      logger.info('Reconstructing state...');
       const success = await reconstructState(jwtToken);
       if (success) {
         // STEP 5: Perform single wall check for adjustment

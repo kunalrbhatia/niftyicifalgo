@@ -134,11 +134,14 @@ async function reconstructState(jwtToken) {
         const symbol = p.tradingsymbol;
         const isCall = symbol.endsWith('CE');
         const isPut = symbol.endsWith('PE');
-        const strike = parseInt(symbol.match(/\d+$/)[0].slice(0, -2)) || parseInt(symbol.match(/(\d+)(CE|PE)$/)[1]);
         
-        // Accurate strike extraction: NIFTY13APR2623900CE -> 23900
-        const strikeMatch = symbol.match(/(\d+)(CE|PE)$/);
+        // Accurate strike extraction: NIFTY28APR2623600PE -> 23600
+        // We look for exactly 5 digits followed by CE/PE. 
+        // Note: Nifty strikes are usually 5 digits (e.g., 23600).
+        const strikeMatch = symbol.match(/(\d{5})(CE|PE)$/);
         const extractedStrike = strikeMatch ? parseInt(strikeMatch[1]) : 0;
+        
+        logger.debug(`Extracted strike ${extractedStrike} from ${symbol}`);
 
         const legData = {
           tradingSymbol: symbol,
