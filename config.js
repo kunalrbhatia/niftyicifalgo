@@ -18,7 +18,7 @@ module.exports = {
 
   // Instrument
   symbol: 'NIFTY',
-  expiryType: 'weekly',
+  expiryType: 'monthly',
 
   // SmartAPI endpoints
   baseURL: 'https://apiconnect.angelone.in',

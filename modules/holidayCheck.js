@@ -43,26 +43,30 @@ async function isTodayExpiryDay() {
     return false;
   }
 
-  // 2. Logic from BLUEPRINT:
-  // - Nifty weekly options expire every Tuesday.
-  // - If Tuesday is a holiday, it shifts to Monday.
+  // 2. Logic:
+  // - Nifty monthly options expire on the last Tuesday of the month.
+  // - If that Tuesday is a holiday, it shifts to the preceding trading day.
 
-  // Case A: Today is Tuesday
-  if (dayOfWeek === 2) {
-    return true;
-  }
-
-  // Case B: Today is Monday, and next Tuesday is a holiday
-  if (dayOfWeek === 1) {
-    const nextTuesday = today.clone().add(1, 'day');
-    const isTuesdayTrading = checkIsTradingDay(nextTuesday.format('YYYY-MM-DD'));
-    if (!isTuesdayTrading) {
-      return true;
+  const getMonthlyExpiry = (date) => {
+    let lastDayOfMonth = date.clone().endOf('month');
+    let lastTuesday = lastDayOfMonth.clone();
+    
+    // Find the last Tuesday (2 = Tuesday)
+    while (lastTuesday.day() !== 2) {
+      lastTuesday.subtract(1, 'day');
     }
-  }
 
-  // All other cases
-  return false;
+    // Check if last Tuesday is a holiday, if so, move to preceding trading day
+    while (!checkIsTradingDay(lastTuesday.format('YYYY-MM-DD'))) {
+      lastTuesday.subtract(1, 'day');
+    }
+    
+    return lastTuesday.format('YYYY-MM-DD');
+  };
+
+  const monthlyExpiryToday = getMonthlyExpiry(today);
+
+  return todayStr === monthlyExpiryToday;
 }
 
 module.exports = {

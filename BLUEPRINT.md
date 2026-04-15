@@ -1,15 +1,15 @@
-# 📘 BLUEPRINT: Nifty 50 Weekly Expiry Iron Condor → Iron Butterfly Algo
-> **Version:** 1.0  
+# 📘 BLUEPRINT: Nifty 50 Monthly Expiry Iron Condor → Iron Butterfly Algo
+> **Version:** 1.1  
 > **Language:** Node.js  
 > **Broker:** Angel One SmartAPI  
 > **Exchange:** NSE (National Stock Exchange of India)  
-> **Instrument:** NIFTY 50 Weekly Options  
+> **Instrument:** NIFTY 50 Monthly Options  
 
 ---
 
 ## 🧠 Strategy Overview
 
-This is an **intraday options strategy** that runs **only on Nifty 50 weekly expiry day**.
+This is an **intraday options strategy** that runs **only on Nifty 50 monthly expiry day**.
 
 ### Entry
 - Sell **25 Delta PUT** (Short PUT) — this is the **PUT WALL**
@@ -37,11 +37,11 @@ This creates an **Iron Condor** at entry.
 ## 📅 When Does the Algo Run?
 
 ### Expiry Day Logic
-- Nifty 50 weekly options expire every **Tuesday** on NSE.
-- If **Tuesday is an NSE trading holiday**, expiry shifts to **Monday**.
+- Nifty 50 monthly options expire on the **last Tuesday of the month** on NSE.
+- If the **last Tuesday is an NSE trading holiday**, expiry shifts to the **preceding trading day** (Monday, or Friday if Monday is also a holiday).
 - The algo must:
-  1. Check if today is a **valid NSE trading day** using `nse-market-holidays` npm package.
-  2. Check if today is the **Nifty expiry day** (Tuesday, or Monday when Tuesday is holiday).
+  1. Check if today is a **valid NSE trading day**.
+  2. Check if today is the **Nifty monthly expiry day**.
   3. If YES → proceed. If NO → do nothing, exit gracefully.
 
 ---

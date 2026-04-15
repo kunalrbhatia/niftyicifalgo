@@ -27,7 +27,8 @@ async function adjustCallSide(jwtToken) {
         Math.abs(curr.strikePrice - spotPrice) < Math.abs(prev.strikePrice - spotPrice) ? curr : prev
       );
 
-    const quantity = (parseInt(process.env.LOTS) || 2) * 25;
+    const config = require('../config');
+    const quantity = config.lots * config.lotSize;
 
     // 1. Buy back existing BUY CALL wing
     await orderManager.placeOrder(jwtToken, { 
@@ -81,7 +82,8 @@ async function adjustPutSide(jwtToken) {
         Math.abs(curr.strikePrice - spotPrice) < Math.abs(prev.strikePrice - spotPrice) ? curr : prev
       );
 
-    const quantity = (parseInt(process.env.LOTS) || 2) * 25;
+    const config = require('../config');
+    const quantity = config.lots * config.lotSize;
 
     // 1. Buy back existing BUY PUT wing
     await orderManager.placeOrder(jwtToken, { 

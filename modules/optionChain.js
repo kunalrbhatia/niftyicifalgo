@@ -52,33 +52,38 @@ const exportsObj = {
       '2026-10-20', '2026-12-25',
     ];
 
-    const isHoliday = (dateStr) => nseHolidays2026.includes(dateStr);
+    const checkIsTradingDay = (dateStr) => {
+      if (nseHolidays2026.includes(dateStr)) return false;
+      const day = moment(dateStr).day();
+      return !(day === 0 || day === 6);
+    };
 
-    let expiryDate = today.clone().tz('Asia/Kolkata');
-    const dayOfWeek = expiryDate.day();
+    let lastDayOfMonth = today.clone().endOf('month');
+    let lastTuesday = lastDayOfMonth.clone();
+    
+    // Find the last Tuesday (2 = Tuesday)
+    while (lastTuesday.day() !== 2) {
+      lastTuesday.subtract(1, 'day');
+    }
 
-    // Find next Tuesday
-    let daysToTuesday = (2 - dayOfWeek + 7) % 7;
-    expiryDate.add(daysToTuesday, 'days');
-
-    // If that Tuesday is a holiday, move to Monday
-    if (isHoliday(expiryDate.format('YYYY-MM-DD'))) {
-      expiryDate.subtract(1, 'days');
+    // Check if last Tuesday is a holiday, if so, move to preceding trading day
+    while (!checkIsTradingDay(lastTuesday.format('YYYY-MM-DD'))) {
+      lastTuesday.subtract(1, 'day');
     }
     
-    // If today is past that expiryDate, we should find the NEXT weekly expiry
-    // But since the algo only runs on expiry day, we can assume we want THIS week's expiry.
-    // However, for robustness:
-    if (today.isAfter(expiryDate, 'day')) {
-        // This shouldn't happen if called on expiry day, but let's be safe
-        expiryDate.add(7, 'days');
-        // Re-check holiday for next week's Tuesday
-        if (isHoliday(expiryDate.format('YYYY-MM-DD'))) {
-            expiryDate.subtract(1, 'days');
+    // If today is past that expiryDate, find next month's expiry
+    if (today.isAfter(lastTuesday, 'day')) {
+        let nextMonth = today.clone().add(1, 'month').endOf('month');
+        lastTuesday = nextMonth.clone();
+        while (lastTuesday.day() !== 2) {
+            lastTuesday.subtract(1, 'day');
+        }
+        while (!checkIsTradingDay(lastTuesday.format('YYYY-MM-DD'))) {
+            lastTuesday.subtract(1, 'day');
         }
     }
 
-    return expiryDate.format('DDMMMYYYY').toUpperCase();
+    return lastTuesday.format('DDMMMYYYY').toUpperCase();
   },
 
   getOptionChain: async function(jwtToken) {

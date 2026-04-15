@@ -12,7 +12,8 @@ async function runFinalExitCheck(jwtToken) {
   try {
     const spotPrice = await optionChain.getNiftySpotPrice(jwtToken);
     const state = getPosition();
-    const quantity = (parseInt(process.env.LOTS) || 2) * 25;
+    const config = require('../config');
+    const quantity = config.lots * config.lotSize;
 
     logger.info(`Final Exit Check: Nifty Spot = ${spotPrice}`);
 
