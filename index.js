@@ -1,83 +1,83 @@
-const { isTodayExpiryDay } = require('./modules/holidayCheck');
+const { isTodayExpiryDay, isTradingDay } = require('./modules/holidayCheck');
 const { login } = require('./modules/auth');
-const { getOptionChain } = require('./modules/optionChain');
+const { getOptionChain, enrichStrikes } = require('./modules/optionChain');
 const { findStrikes } = require('./modules/deltaFinder');
 const { placeIronCondorEntry } = require('./modules/orderManager');
-const { initPosition } = require('./modules/positionTracker');
-const { startMonitoring, stopMonitoring } = require('./modules/wallMonitor');
+const { initPosition, hasOpenPositions, reconstructState } = require('./modules/positionTracker');
+const { performSingleWallCheck } = require('./modules/wallMonitor');
 const { runFinalExitCheck } = require('./modules/exitManager');
 const { isTimeReached, sleep } = require('./utils/helpers');
 const logger = require('./utils/logger');
 require('dotenv').config();
 
 async function main() {
-  logger.info('=== Nifty Expiry Algo Started ===');
+  logger.info('=== Nifty Positional Algo Started ===');
 
   try {
-    // STEP 1: Check if today is expiry day
-    const isExpiry = await isTodayExpiryDay();
-    if (!isExpiry) {
-      logger.info('Today is NOT Nifty expiry day. Algo exits.');
+    // STEP 1: Check if today is a trading day
+    const { isTodayTrading, isExpiry } = await isTodayExpiryDay();
+    if (!isTodayTrading) {
+      logger.info('Today is NOT a trading day. Algo exits.');
       process.exit(0);
     }
-    logger.info('Today IS Nifty expiry day. Proceeding...');
+    logger.info('Today IS a valid trading day. Proceeding...');
 
-    // STEP 2: Wait until entry time (09:30 AM IST)
-    while (!isTimeReached(process.env.ENTRY_TIME || '09:30')) {
-      logger.info(`Waiting for entry time ${process.env.ENTRY_TIME || '09:30'}...`);
-      await sleep(30 * 1000); // check every 30 sec
-    }
-
-    // STEP 3: Login
+    // STEP 2: Login
     logger.info('Logging into SmartAPI...');
     const session = await login();
     const { jwtToken } = session;
     logger.info('Login successful.');
 
-    // NEW: Check if positions already exist to avoid redundant entry on restart
-    const { hasOpenPositions, reconstructState } = require('./modules/positionTracker');
+    // STEP 4: Check for existing positions
     const positionsExist = await hasOpenPositions(jwtToken);
+    
     if (positionsExist) {
-      logger.warn('Detected existing Nifty positions for today.');
+      logger.info('Existing Nifty positions detected. Reconstructing state...');
       const success = await reconstructState(jwtToken);
       if (success) {
-        logger.info('Successfully reconstructed state. Resuming monitoring...');
-        startMonitoring(jwtToken);
+        // STEP 5: Perform single wall check for adjustment
+        logger.info('Performing daily wall check for adjustments...');
+        await performSingleWallCheck(jwtToken);
       } else {
-        logger.error('Failed to reconstruct state from positions. Monitoring will NOT start.');
+        logger.error('Failed to reconstruct state from positions. Skipping wall check.');
       }
     } else {
-      // STEP 4: Fetch option chain + find strikes
-      logger.info('Fetching option chain...');
-      const chain = await getOptionChain(jwtToken);
-      const initialStrikes = findStrikes(chain);
-      logger.info('Identifying tokens and LTP for strikes...');
-      const { enrichStrikes } = require('./modules/optionChain');
-      const strikes = await enrichStrikes(jwtToken, initialStrikes);
-      logger.info('Strikes identified and enriched:', strikes);
-
-      // STEP 5: Place Iron Condor entry (4 legs)
-      logger.info('Placing Iron Condor orders...');
-      const orderIds = await placeIronCondorEntry(jwtToken, strikes);
-      initPosition(strikes, orderIds);
-      logger.info('Orders placed. Position initiated.');
-
-      // STEP 6: Start wall monitoring loop
-      logger.info('Starting wall monitor...');
-      startMonitoring(jwtToken);
+      logger.info('No open Nifty positions found.');
+      
+      // OPTIONAL: Entry Logic
+      // For now, if no positions, we might want to enter a new Iron Condor 
+      // if today is the correct entry day (e.g. after expiry).
+      // Based on user request, the focus is on adjustment.
+      // If you want auto-entry when empty, uncomment below:
+      /*
+      const { isExpiry } = await isTodayExpiryDay();
+      if (!isExpiry) {
+        logger.info('Not an expiry day and no positions. Entering new Iron Condor...');
+        const chain = await getOptionChain(jwtToken);
+        const initialStrikes = findStrikes(chain);
+        const strikes = await enrichStrikes(jwtToken, initialStrikes);
+        const orderIds = await placeIronCondorEntry(jwtToken, strikes);
+        initPosition(strikes, orderIds);
+        logger.info('New positional Iron Condor initiated.');
+      }
+      */
     }
 
-    // STEP 7: Wait until 15:25 (Final Exit)
-    while (!isTimeReached(process.env.EXIT_CHECK_TIME || '15:25')) {
-      await sleep(60 * 1000); // wait 1 min
+    // STEP 6: Special handling for Expiry Day
+    const { isExpiry } = await isTodayExpiryDay();
+    if (isExpiry) {
+      const EXIT_TIME = process.env.EXIT_CHECK_TIME || '15:25';
+      logger.info(`Today is EXPIRY DAY. Waiting for final exit check at ${EXIT_TIME}...`);
+      
+      while (!isTimeReached(EXIT_TIME)) {
+        await sleep(30 * 1000);
+      }
+      
+      logger.info('Running final ITM exit check...');
+      await runFinalExitCheck(jwtToken);
     }
 
-    // STEP 8: Stop monitor (if still running) and run final exit check
-    stopMonitoring();
-    logger.info('Running final ITM exit check at 15:25...');
-    await runFinalExitCheck(jwtToken);
-
-    logger.info('=== Algo Completed for Today ===');
+    logger.info('=== Daily Algo Run Completed ===');
     process.exit(0);
   } catch (error) {
     logger.error('Fatal error in main:', error);

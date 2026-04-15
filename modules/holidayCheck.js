@@ -38,15 +38,6 @@ async function isTodayExpiryDay() {
 
   const isTodayTrading = checkIsTradingDay(todayStr);
 
-  // If today is NOT a trading day, it can't be an expiry day
-  if (!isTodayTrading) {
-    return false;
-  }
-
-  // 2. Logic:
-  // - Nifty monthly options expire on the last Tuesday of the month.
-  // - If that Tuesday is a holiday, it shifts to the preceding trading day.
-
   const getMonthlyExpiry = (date) => {
     let lastDayOfMonth = date.clone().endOf('month');
     let lastTuesday = lastDayOfMonth.clone();
@@ -65,10 +56,15 @@ async function isTodayExpiryDay() {
   };
 
   const monthlyExpiryToday = getMonthlyExpiry(today);
+  const isExpiry = todayStr === monthlyExpiryToday;
 
-  return todayStr === monthlyExpiryToday;
+  return { isTodayTrading, todayStr, isExpiry, checkIsTradingDay };
 }
 
 module.exports = {
-  isTodayExpiryDay
+  isTodayExpiryDay,
+  isTradingDay: async () => {
+    const { isTodayTrading } = await isTodayExpiryDay();
+    return isTodayTrading;
+  }
 };
