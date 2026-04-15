@@ -58,12 +58,14 @@ async function hasOpenPositions(jwtToken) {
       if (!positions) return false;
 
       const moment = require('moment-timezone');
-      const todayTag = moment().tz('Asia/Kolkata').format('DDMMMYY').toUpperCase(); // e.g. 13APR26 -> 13APR26
+      const { getExpiryDate } = require('./optionChain');
+      const expiryStr = await getExpiryDate(); // e.g. 28APR2026
+      const expiryTag = moment(expiryStr, 'DDMMMYYYY').format('DDMMMYY').toUpperCase(); // e.g. 28APR26
 
-      // Simple check: Any NIFTY position with today's date in trading symbol
+      // Accurate check: Any NIFTY position with the current monthly expiry tag in trading symbol
       const relevantPositions = positions.filter(p => 
         p.tradingsymbol.startsWith('NIFTY') && 
-        p.tradingsymbol.includes(todayTag) && 
+        p.tradingsymbol.includes(expiryTag) && 
         parseInt(p.netqty) !== 0
       );
 
@@ -102,17 +104,22 @@ async function reconstructState(jwtToken) {
     if (response.data.status === true && response.data.data) {
       const positions = response.data.data;
       const moment = require('moment-timezone');
-      const todayTag = moment().tz('Asia/Kolkata').format('DDMMMYY').toUpperCase();
+      const optionChain = require('./optionChain');
+      const expiryStr = await optionChain.getExpiryDate();
+      const expiryTag = moment(expiryStr, 'DDMMMYYYY').format('DDMMMYY').toUpperCase();
 
       const relevant = positions.filter(p => 
         p.tradingsymbol.startsWith('NIFTY') && 
-        p.tradingsymbol.includes(todayTag) && 
+        p.tradingsymbol.includes(expiryTag) && 
         parseInt(p.netqty) !== 0
       );
 
-      if (relevant.length === 0) return false;
+      if (relevant.length === 0) {
+        logger.warn(`No relevant positions found for expiry ${expiryTag}`);
+        return false;
+      }
 
-      logger.info(`Reconstructing state from ${relevant.length} live positions...`);
+      logger.info(`Reconstructing state from ${relevant.length} live positions for ${expiryTag}...`);
       
       // Reset state legs
       state.legs = {
@@ -176,7 +183,7 @@ async function reconstructState(jwtToken) {
     }
     return false;
   } catch (error) {
-    logger.error('Error during state reconstruction:', error.message);
+    logger.error('Error during state reconstruction: %O', error);
     return false;
   }
 }

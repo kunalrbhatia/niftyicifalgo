@@ -133,6 +133,9 @@ const exportsObj = {
     }
 
     const master = JSON.parse(fs.readFileSync(masterPath, 'utf8'));
+    const expiryDate = await exportsObj.getExpiryDate();
+    logger.info(`Enriching strikes for expiry: ${expiryDate}`);
+
     const keys = ['sellPut', 'buyPut', 'sellCall', 'buyCall'];
     const enriched = {};
 
@@ -141,11 +144,11 @@ const exportsObj = {
       const strike = leg.strike;
       const type = key.includes('Put') ? 'PE' : 'CE';
       
-      // Filter master for this strike and type
-      // Match strike and ensure symbol ends with the type
+      // Filter master for this strike, type, and the CORRECT monthly expiry
       const match = master.find(s => 
         (parseFloat(s.strike) / 100 === strike || parseFloat(s.strike) === strike) && 
-        s.symbol.endsWith(type)
+        s.symbol.endsWith(type) &&
+        s.expiry === expiryDate
       );
 
       if (match) {
@@ -157,7 +160,7 @@ const exportsObj = {
           ltp: 0 // Will fill later
         };
       } else {
-        throw new Error(`Failed to find security info for ${strike} ${type} in master file.`);
+        throw new Error(`Failed to find security info for ${strike} ${type} on ${expiryDate} in master file.`);
       }
     }
 
