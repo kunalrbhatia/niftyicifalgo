@@ -44,28 +44,35 @@ async function main() {
     } else {
       logger.info('No open Nifty positions found.');
       
-      // OPTIONAL: Entry Logic
-      // For now, if no positions, we might want to enter a new Iron Condor 
-      // if today is the correct entry day (e.g. after expiry).
-      // Based on user request, the focus is on adjustment.
-      // If you want auto-entry when empty, uncomment below:
-      /*
-      const { isExpiry } = await isTodayExpiryDay();
-      if (!isExpiry) {
-        logger.info('Not an expiry day and no positions. Entering new Iron Condor...');
+      const moment = require('moment-timezone');
+      const today = moment().tz('Asia/Kolkata');
+      const dayOfMonth = today.date();
+
+      if (dayOfMonth <= 15) {
+        logger.info(`Today is day ${dayOfMonth} of the month (<= 15). Initiating new Iron Condor...`);
+        
+        // Fetch option chain + find strikes
+        logger.info('Fetching option chain...');
         const chain = await getOptionChain(jwtToken);
         const initialStrikes = findStrikes(chain);
+        
+        logger.info('Identifying tokens and LTP for strikes...');
         const strikes = await enrichStrikes(jwtToken, initialStrikes);
+        logger.info('Strikes identified and enriched:', strikes);
+
+        // Place Iron Condor entry (4 legs)
+        logger.info('Placing Iron Condor orders...');
         const orderIds = await placeIronCondorEntry(jwtToken, strikes);
         initPosition(strikes, orderIds);
         logger.info('New positional Iron Condor initiated.');
+      } else {
+        logger.info(`Today is day ${dayOfMonth} of the month (> 15). Skipping new entry.`);
       }
-      */
     }
 
     // STEP 6: Special handling for Expiry Day
-    const { isExpiry } = await isTodayExpiryDay();
-    if (isExpiry) {
+    const expiryStatus = await isTodayExpiryDay();
+    if (expiryStatus.isExpiry) {
       const EXIT_TIME = process.env.EXIT_CHECK_TIME || '15:25';
       logger.info(`Today is EXPIRY DAY. Waiting for final exit check at ${EXIT_TIME}...`);
       
