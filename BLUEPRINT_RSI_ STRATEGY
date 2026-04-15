@@ -1,0 +1,1094 @@
+# 📘 BLUEPRINT: Nifty RSI-Based Intraday Options Selling Algo
+> **Version:** 2.2  
+> **Language:** Node.js  
+> **Broker:** Angel One SmartAPI  
+> **Exchange:** NSE (National Stock Exchange of India)  
+> **Instrument:** NIFTY 50 Options (Near Expiry / Monthly fallback)  
+
+---
+
+## 🧠 Strategy Overview
+
+This is an **intraday options selling strategy** that runs **every NSE trading day** (not just expiry day).
+
+The algo watches **Nifty Spot RSI (14-period, on 5-minute candles)** and initiates directional short option trades when RSI reaches extreme overbought or oversold levels.
+
+---
+
+### 📐 RSI Signal Logic
+
+| RSI Condition | Action |
+|---|---|
+| RSI **≥ 80** (Overbought) | **Sell an OTM CALL** + Buy a hedge CALL further OTM |
+| RSI **≤ 20** (Oversold) | **Sell an OTM PUT** + Buy a hedge PUT further OTM |
+
+- **Only one trade per day.** Once a signal fires and positions are placed, RSI monitoring stops for the day.
+- RSI is checked **every 1 minute** (on the latest completed 5-min candle close) until entry.
+- If no RSI signal fires before **3:00 PM IST** → algo exits gracefully with no trades.
+
+---
+
+### 🎯 Strike Selection — Selling Leg
+
+- On **RSI ≥ 80 (CALL sell):**
+  - Fetch live option chain.
+  - Find the **first OTM CALL** strike above current Nifty spot (rounded to nearest 50-point interval).
+  - Prefer a strike that is **1–2 strikes OTM** (i.e., 50–100 points above spot).
+  - Check **Open Interest (OI) and volume** for liquidity — minimum thresholds defined in `config.js`.
+
+- On **RSI ≤ 20 (PUT sell):**
+  - Fetch live option chain.
+  - Find the **first OTM PUT** strike below current Nifty spot (rounded to nearest 50-point interval).
+  - Prefer a strike that is **1–2 strikes OTM** (i.e., 50–100 points below spot).
+  - Check **OI and volume** for liquidity — minimum thresholds defined in `config.js`.
+
+---
+
+### 🛡️ Hedge (Buying Leg)
+
+After selecting the sell strike:
+1. Note the **LTP (Last Traded Price)** of the sold option = `sellPremium`.
+2. Target hedge premium = `sellPremium / 2` (half of what was collected).
+3. Scan the option chain **further OTM** (in the same direction: higher CALL strikes / lower PUT strikes) for the strike whose **LTP is closest to `sellPremium / 2`**.
+4. Also verify liquidity (OI + volume) on the hedge leg.
+5. **BUY** that hedge strike.
+
+This forms a **vertical spread** (Bull Put Spread or Bear Call Spread) with the hedge costing approximately half the premium collected, giving a defined-risk structure.
+
+---
+
+### 📅 Expiry Selection Logic
+
+The algo sells options on the **nearest upcoming expiry**, with one exception:
+
+| Scenario | Expiry to Use |
+|---|---|
+| **Normal week** (not last week of month) | **Current week's weekly expiry** (Thursday) |
+| **Last week of the month** (Thursday expiry = monthly expiry, or within 3 trading days of monthly expiry) | **Monthly expiry only** — do NOT use the weekly; it IS the monthly |
+| Thursday is an NSE holiday | Roll to the **preceding trading day** (Wednesday, or Tuesday if Wednesday is also a holiday) |
+
+**"Last week of the month" detection:**
+- Get the monthly expiry date (last Thursday of the month).
+- If today's date is within 3 calendar days of the monthly expiry → treat this week as "monthly expiry week."
+- In that case, `getExpiryDate()` returns the monthly expiry date directly.
+
+> ⚠️ **Note on Nifty expiry day change:** Nifty weekly expiry moved from **Thursday to Monday** effective **April 4, 2025**. Verify the current expiry day with NSE before deployment and update `config.js` accordingly. The blueprint uses Monday as the current weekly expiry day below — adjust if needed.
+
+---
+
+### 🚪 Exit Rule
+
+Once the spread is live, a **P&L monitor** (`pnlMonitor.js`) runs every 1 minute and checks the current mark-to-market P&L of the combined spread position. Exits are triggered as follows:
+
+| Condition | Action |
+|---|---|
+| **Net P&L ≥ +1% of margin used** | 🟢 **Take Profit** — exit both legs immediately via MARKET order |
+| **Net P&L ≤ −2% of margin used** | 🔴 **Stop Loss** — exit both legs immediately via MARKET order |
+| **3:25 PM IST reached** (hard cutoff) | 🕒 **Force Exit** — exit ALL open legs regardless of P&L |
+
+> **Why CARRYFORWARD instead of INTRADAY?** Intraday (MIS) orders are auto squared-off by the broker in the last 30 minutes of the session, which triggers at unpredictable times, attracts higher brokerage/penalty charges, and removes control from the algo. CARRYFORWARD (CNC/NRML) orders are never auto squared-off — the algo retains full control and manually exits everything at 3:25 PM via `exitManager.runForceExit()`. If the algo crashes and misses the 3:25 PM exit, the position simply carries overnight with no penalty — which is acceptable and recoverable.
+
+**Margin used** = SPAN + Exposure margin blocked by the broker for the short leg of the spread. This value is captured at entry from SmartAPI's funds/margins API and stored in `positionTracker`.
+
+**Mark-to-market P&L** is computed every minute as:
+```
+currentPnL = (sellLeg.entryPrice - sellLeg.currentLTP) × qty    // profit as premium decays
+           + (hedgeLeg.currentLTP - hedgeLeg.entryPrice) × qty  // hedge leg gain/loss
+```
+
+- The P&L monitor **stops** as soon as either target or SL is hit and orders are placed.
+- If neither is hit by 3:25 PM, `exitManager.js` takes over and force-exits everything.
+- At 3:25 PM the exit is **all legs** — no ITM/OTM distinction — because this is a hard time cutoff, not an expiry settlement check.
+
+---
+
+## 📅 When Does the Algo Run?
+
+### Daily Run Logic (Not just expiry day)
+- The algo runs **every NSE trading day**.
+- On startup, check if today is a **valid NSE trading day** using `nse-market-holidays`.
+- If today is an NSE holiday → log and exit gracefully.
+- Otherwise, proceed to RSI monitoring from market open.
+
+---
+
+## 🛠️ Tech Stack
+
+| Component         | Technology                          |
+|-------------------|-------------------------------------|
+| Language          | Node.js (v18+)                      |
+| Broker API        | Angel One SmartAPI (REST + WebSocket)|
+| Authentication    | SmartAPI JWT + TOTP via `otplib`    |
+| Holiday Check     | `nse-market-holidays` npm package   |
+| Option Chain Data | SmartAPI REST API                   |
+| OHLC / Candle Data| SmartAPI REST API (5-min candles)   |
+| RSI Calculation   | `technicalindicators` npm package   |
+| P&L Monitoring    | SmartAPI LTP API (polled every 1 min) |
+| Order Placement   | SmartAPI REST API (MARKET orders)   |
+| Logging           | winston (file + console)            |
+| Scheduler (local) | node-cron OR pm2 cron               |
+| Scheduler (cloud) | GCP Cloud Scheduler OR Oracle Scheduler |
+| Env Management    | dotenv                              |
+
+---
+
+## 📦 NPM Dependencies
+
+```json
+{
+  "dependencies": {
+    "axios": "^1.6.0",
+    "otplib": "^12.0.1",
+    "nse-market-holidays": "latest",
+    "technicalindicators": "^3.1.0",
+    "dotenv": "^16.0.0",
+    "winston": "^3.11.0",
+    "node-cron": "^3.0.3",
+    "ws": "^8.16.0"
+  }
+}
+```
+
+---
+
+## 🔐 Environment Variables (.env)
+
+```env
+# Angel One SmartAPI Credentials
+ANGEL_API_KEY=your_api_key_here
+ANGEL_CLIENT_ID=your_client_id_here
+ANGEL_PASSWORD=your_angel_password_here
+ANGEL_TOTP_SECRET=your_totp_secret_key_here
+
+# Strategy Config (can override config.js)
+LOTS=2
+RSI_OVERBOUGHT=80
+RSI_OVERSOLD=20
+RSI_PERIOD=14
+CANDLE_INTERVAL=FIVE_MINUTE
+ENTRY_START_TIME=09:20
+ENTRY_CUTOFF_TIME=15:00
+EXIT_CHECK_TIME=15:25
+MIN_OI=500
+MIN_VOLUME=100
+OTM_STRIKES_AWAY=2
+
+# Exit Thresholds (% of margin used)
+PROFIT_TARGET_PCT=1
+STOPLOSS_PCT=2
+```
+
+> ⚠️ **NEVER commit `.env` to git. Always add it to `.gitignore`.**
+
+---
+
+## 📁 Project Structure
+
+```
+nifty-rsi-algo/
+│
+├── .env                    # 🔒 Secrets — GITIGNORED
+├── .gitignore
+├── package.json
+├── README.md
+│
+├── config.js               # Central strategy configuration
+├── index.js                # Main entry point — orchestrates everything
+│
+├── modules/
+│   ├── auth.js             # SmartAPI login + TOTP generation
+│   ├── holidayCheck.js     # Is today a valid NSE trading day?
+│   ├── expirySelector.js   # Determine correct expiry (weekly vs monthly)
+│   ├── candleData.js       # Fetch 5-min OHLC candles for Nifty spot
+│   ├── rsiEngine.js        # Calculate RSI and detect signal (≥80 or ≤20)
+│   ├── optionChain.js      # Fetch live Nifty option chain + LTP + OI + Volume
+│   ├── strikePicker.js     # Select OTM sell strike + hedge strike
+│   ├── orderManager.js     # Place / exit MARKET orders
+│   ├── positionTracker.js  # Track all open legs + margin + P&L state
+│   ├── pnlMonitor.js       # Post-entry: poll LTP every 1 min, exit on TP/SL
+│   └── exitManager.js      # 3:25 PM hard force-exit of all open legs
+│
+├── utils/
+│   ├── logger.js           # Winston logger (file + console)
+│   └── helpers.js          # Utility functions (time check, rounding, etc.)
+│
+└── logs/
+    └── .gitkeep
+```
+
+---
+
+## ⚙️ config.js — Full Configuration
+
+```javascript
+// config.js
+module.exports = {
+  // RSI Strategy
+  rsiPeriod: parseInt(process.env.RSI_PERIOD) || 14,
+  rsiOverbought: parseInt(process.env.RSI_OVERBOUGHT) || 80,
+  rsiOversold: parseInt(process.env.RSI_OVERSOLD) || 20,
+  candleInterval: process.env.CANDLE_INTERVAL || 'FIVE_MINUTE',  // SmartAPI interval string
+
+  // Strike Selection
+  otmStrikesAway: parseInt(process.env.OTM_STRIKES_AWAY) || 2,  // How many strikes OTM for sell leg
+  strikeInterval: 50,                                             // Nifty strike gap (points)
+
+  // Hedge Selection
+  hedgePremiumRatio: 0.5,                                         // Buy hedge at ~50% of sell premium
+
+  // Liquidity Filters
+  minOI: parseInt(process.env.MIN_OI) || 500,                     // Minimum Open Interest for a strike
+  minVolume: parseInt(process.env.MIN_VOLUME) || 100,             // Minimum traded volume
+
+  // Lots & Sizing
+  lots: parseInt(process.env.LOTS) || 2,
+  lotSize: 25,                                                    // Nifty lot size — VERIFY before use (was 50, revised to 25 in late 2024)
+
+  // Expiry
+  weeklyExpiryDay: 1,   // 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat — Monday as of Apr 2025
+  monthlyExpiryWindowDays: 3,  // If within this many calendar days of monthly expiry, use monthly
+
+  // Timing (IST — 24hr format)
+  entryStartTime: process.env.ENTRY_START_TIME || '09:20',         // Start RSI monitoring
+  entryCutoffTime: process.env.ENTRY_CUTOFF_TIME || '15:00',       // Stop signal detection (no new trades after this)
+  rsiCheckIntervalMs: 1 * 60 * 1000,                               // Check RSI every 1 minute (pre-entry)
+  pnlCheckIntervalMs: 1 * 60 * 1000,                               // Check P&L every 1 minute (post-entry)
+  finalExitTime: process.env.EXIT_CHECK_TIME || '15:25',           // Hard force-exit time (all open legs)
+
+  // Exit Thresholds (% of margin used)
+  profitTargetPct: parseFloat(process.env.PROFIT_TARGET_PCT) || 1.0,   // Exit at +1% of margin
+  stoplossPct: parseFloat(process.env.STOPLOSS_PCT) || 2.0,             // Exit at -2% of margin
+
+  // Orders
+  orderType: 'MARKET',
+  exchange: 'NFO',
+  productType: 'CARRYFORWARD',  // NOT intraday — avoids broker auto square-off and excess charges
+
+  // Instrument
+  symbol: 'NIFTY',
+  niftyTokenNSE: '26000',   // SmartAPI token for Nifty 50 spot (NSE segment)
+
+  // SmartAPI
+  baseURL: 'https://apiconnect.angelone.in',
+
+  // Logging
+  logDir: './logs',
+};
+```
+
+---
+
+## 📋 Module Specifications
+
+---
+
+### 1. `modules/holidayCheck.js`
+
+**Purpose:** Determine if today is a valid NSE trading day.
+
+**Logic:**
+1. Use `nse-market-holidays` to check if today is an NSE trading holiday.
+2. If today is a holiday → return `false`.
+3. If today is Saturday or Sunday → return `false`.
+4. Otherwise → return `true`.
+
+**Exports:**
+```javascript
+async function isTodayTradingDay() → returns Boolean
+```
+
+---
+
+### 2. `modules/auth.js`
+
+**Purpose:** Authenticate with Angel One SmartAPI and return a valid session token.
+
+**Logic:**
+1. Import `otplib` → use `authenticator.generate(process.env.ANGEL_TOTP_SECRET)` to generate live TOTP.
+2. POST to SmartAPI login endpoint: `POST /rest/auth/angelbroking/user/v1/loginByPassword`
+3. Payload: `{ clientcode, password, totp }`
+4. On success: store `jwtToken`, `refreshToken`, `feedToken` in memory.
+5. Return session object.
+
+**SmartAPI Login Endpoint:**
+```
+POST https://apiconnect.angelone.in/rest/auth/angelbroking/user/v1/loginByPassword
+Headers: { "X-ClientLocalIP", "X-ClientPublicIP", "X-MACAddress", "X-PrivateKey": ANGEL_API_KEY }
+Body: { "clientcode": ANGEL_CLIENT_ID, "password": ANGEL_PASSWORD, "totp": <otplib generated> }
+```
+
+**Exports:**
+```javascript
+async function login() → returns { jwtToken, feedToken, refreshToken }
+```
+
+---
+
+### 3. `modules/expirySelector.js`
+
+**Purpose:** Decide whether to use the **current week's expiry** or the **monthly expiry**.
+
+**Logic:**
+1. Get today's date.
+2. Find the **monthly expiry** for this month: last Thursday (or Monday per current NSE rules — verify and set in `config.weeklyExpiryDay`).
+3. Find the **nearest upcoming weekly expiry**: the next occurrence of `config.weeklyExpiryDay` (e.g., Monday) that is a trading day.
+4. If the nearest weekly expiry **is the same as the monthly expiry** → use monthly expiry.
+5. If `today` is within `config.monthlyExpiryWindowDays` calendar days of the monthly expiry → use monthly expiry.
+6. Otherwise → use the weekly expiry date.
+7. If the determined expiry date is an NSE holiday → roll back to the preceding trading day.
+8. Return expiry date in `DDMMMYYYY` format (e.g., `28APR2025`) as required by SmartAPI.
+
+**Exports:**
+```javascript
+async function getExpiryDate() → returns String (DDMMMYYYY format)
+async function isLastWeekOfMonth() → returns Boolean
+```
+
+---
+
+### 4. `modules/candleData.js`
+
+**Purpose:** Fetch historical + live 5-minute OHLC candles for the Nifty 50 index spot.
+
+**Logic:**
+1. Use SmartAPI `getCandleData` endpoint: `POST /rest/secure/angelbroking/historical/v1/getCandleData`
+2. Fetch for `symboltoken: config.niftyTokenNSE`, `exchange: 'NSE'`, `interval: 'FIVE_MINUTE'`.
+3. Set `fromdate` to today's date at market open (`09:15:00`) and `todate` to current time.
+4. Return array of candles: `[{ timestamp, open, high, low, close, volume }]`
+5. Ensure at least `rsiPeriod + 1` (15+) candles are returned before RSI calculation proceeds.
+6. **Important:** The RSI monitoring loop calls this every **1 minute** but RSI is always calculated on the **latest completed 5-min candle close**. The most recent in-progress candle is ignored (use `candles.slice(0, -1)` to drop the live unfinished candle if needed, or rely on SmartAPI only returning closed candles for historical endpoint).
+
+**SmartAPI Candle Endpoint:**
+```
+POST https://apiconnect.angelone.in/rest/secure/angelbroking/historical/v1/getCandleData
+Body: {
+  "exchange": "NSE",
+  "symboltoken": "26000",
+  "interval": "FIVE_MINUTE",
+  "fromdate": "2025-04-15 09:15",
+  "todate": "2025-04-15 14:30"
+}
+```
+
+**Exports:**
+```javascript
+async function getNiftyCandles(jwtToken) → returns Array of candle objects
+async function getNiftySpotPrice(jwtToken) → returns Number (latest close price)
+```
+
+---
+
+### 5. `modules/rsiEngine.js`
+
+**Purpose:** Calculate RSI from candle data and detect overbought/oversold signal.
+
+**Logic:**
+1. Accept candle array from `candleData.getNiftyCandles()`.
+2. Extract `close` prices array.
+3. Use `technicalindicators` RSI function:
+   ```javascript
+   const RSI = require('technicalindicators').RSI;
+   const rsiValues = RSI.calculate({ values: closePrices, period: config.rsiPeriod });
+   ```
+4. Take the **latest RSI value** (`rsiValues[rsiValues.length - 1]`).
+5. Signal detection:
+   - If `rsi >= config.rsiOverbought` → return `{ signal: 'SELL_CALL', rsi }`
+   - If `rsi <= config.rsiOversold` → return `{ signal: 'SELL_PUT', rsi }`
+   - Otherwise → return `{ signal: null, rsi }`
+
+**Exports:**
+```javascript
+function calculateRSI(candles) → returns Number (latest RSI value)
+function detectSignal(candles) → returns { signal: 'SELL_CALL' | 'SELL_PUT' | null, rsi: Number }
+```
+
+---
+
+### 6. `modules/optionChain.js`
+
+**Purpose:** Fetch live Nifty option chain with LTP, OI, and volume for the selected expiry.
+
+**Logic:**
+1. Use SmartAPI option chain endpoint: `GET /rest/secure/angelbroking/marketData/v1/optionChain`
+2. Fetch for symbol `NIFTY`, expiry = `expirySelector.getExpiryDate()`.
+3. Return array of strikes with: `{ strikePrice, optionType, ltp, oi, volume, tradingSymbol, token }`
+
+**Exports:**
+```javascript
+async function getOptionChain(jwtToken, expiryDate) → returns Array of option objects
+async function getNiftySpotPrice(jwtToken) → returns Number (spot price)
+```
+
+---
+
+### 7. `modules/strikePicker.js`
+
+**Purpose:** From the option chain, select the sell strike (OTM) and the hedge strike (half-premium).
+
+**Sell Strike Selection Logic:**
+1. Receive `signal` ('SELL_CALL' or 'SELL_PUT'), `spotPrice`, and `optionChain`.
+2. Round spot to nearest 50: `ATM = roundToNearestStrike(spotPrice)`.
+3. **For SELL_CALL:**
+   - Candidate strikes = CALL options with `strikePrice > ATM`, sorted ascending.
+   - Start from `ATM + (otmStrikesAway × strikeInterval)` (e.g., ATM + 100 if 2 strikes away).
+   - Filter by liquidity: `oi >= config.minOI && volume >= config.minVolume`.
+   - Pick the first candidate passing the liquidity check.
+4. **For SELL_PUT:**
+   - Candidate strikes = PUT options with `strikePrice < ATM`, sorted descending.
+   - Start from `ATM - (otmStrikesAway × strikeInterval)`.
+   - Filter by liquidity.
+   - Pick the first candidate passing the liquidity check.
+5. Return selected sell strike object including `ltp` (= `sellPremium`).
+
+**Hedge Strike Selection Logic:**
+1. Compute `targetHedgePremium = sellPremium * config.hedgePremiumRatio` (÷ 2).
+2. **For SELL_CALL hedge:** Scan CALL strikes further OTM (higher than sell strike), ascending.
+3. **For SELL_PUT hedge:** Scan PUT strikes further OTM (lower than sell strike), descending.
+4. For each candidate, check liquidity (`oi >= minOI`, `volume >= minVolume`).
+5. Among liquidity-passing candidates, find the one whose `ltp` is **closest to `targetHedgePremium`**.
+6. Return hedge strike object.
+
+**Exports:**
+```javascript
+function pickSellStrike(signal, spotPrice, optionChain) → returns strikeObject { strikePrice, tradingSymbol, token, ltp, oi, volume }
+function pickHedgeStrike(signal, sellStrike, optionChain) → returns strikeObject { strikePrice, tradingSymbol, token, ltp, oi, volume }
+```
+
+---
+
+### 8. `modules/orderManager.js`
+
+**Purpose:** Place, track, and exit orders via SmartAPI.
+
+**SmartAPI Order Endpoint:**
+```
+POST https://apiconnect.angelone.in/rest/secure/angelbroking/order/v1/placeOrder
+Headers: { Authorization: "Bearer <jwtToken>", "X-PrivateKey": ANGEL_API_KEY }
+Body: {
+  "variety": "NORMAL",
+  "tradingsymbol": "NIFTY...",
+  "symboltoken": "...",
+  "transactiontype": "BUY" | "SELL",
+  "exchange": "NFO",
+  "ordertype": "MARKET",
+  "producttype": "CARRYFORWARD",
+  "duration": "DAY",
+  "price": "0",
+  "quantity": "50"    // 2 lots × 25 = 50
+}
+```
+
+**Functions:**
+
+```javascript
+// Place a single leg order
+async function placeOrder(jwtToken, { tradingSymbol, token, transactionType, quantity }) → returns orderId
+
+// Place both legs: Sell the short strike + Buy the hedge
+async function placeSpreadEntry(jwtToken, { sellStrike, hedgeStrike, signal, quantity }) → returns { sellOrderId, hedgeOrderId }
+
+// Exit a specific leg (used at 3:25 PM for ITM legs)
+async function exitLeg(jwtToken, { tradingSymbol, token, transactionType, quantity }) → returns orderId
+
+// Get order status
+async function getOrderStatus(jwtToken, orderId) → returns orderStatus
+```
+
+**Exports:** All above functions.
+
+---
+
+### 9. `modules/positionTracker.js`
+
+**Purpose:** Maintain in-memory state of all open positions and their current status.
+
+**State Object:**
+```javascript
+{
+  entryTime: Date,
+  expiryDate: String,
+  signal: 'SELL_CALL' | 'SELL_PUT',       // What RSI signal triggered entry
+  rsiAtEntry: Number,                       // RSI value that triggered the trade
+  spotAtEntry: Number,                      // Nifty spot at time of entry
+  legs: {
+    sellLeg: { ...strikeInfo, entryPrice, orderId, status: 'OPEN'|'CLOSED', transactionType: 'SELL' },
+    hedgeLeg: { ...strikeInfo, entryPrice, orderId, status: 'OPEN'|'CLOSED', transactionType: 'BUY' },
+  },
+  netPremiumCollected: Number,              // sellLeg.entryPrice - hedgeLeg.entryPrice (per unit)
+  quantity: Number,                         // Total qty per leg (lots × lotSize)
+  marginUsed: Number,                       // SPAN + Exposure margin in ₹ (fetched from SmartAPI at entry)
+  profitTarget: Number,                     // +1% of marginUsed in ₹
+  stopLoss: Number,                         // -2% of marginUsed in ₹ (stored as negative number)
+  currentPnL: Number,                       // Updated every minute by pnlMonitor
+  exitReason: null | 'TARGET_HIT' | 'SL_HIT' | 'FORCE_EXIT_3:25',
+}
+```
+
+**Exports:**
+```javascript
+function initPosition(signal, rsi, spot, sellStrike, hedgeStrike, orderIds, marginUsed, quantity) → void
+function getPosition() → state object
+function updateLegStatus(legName, status) → void
+function updateCurrentPnL(pnl) → void
+function markExited(reason) → void
+```
+
+---
+
+### 10. `modules/pnlMonitor.js`
+
+**Purpose:** After entry, poll LTP of both legs every 1 minute and exit the full spread if profit target or stop loss is hit.
+
+**Logic:**
+1. Called immediately after `initPosition()` in `index.js`.
+2. Start a `setInterval` loop every `config.pnlCheckIntervalMs` (60 seconds).
+3. On each tick:
+   a. Fetch current LTP for `sellLeg.token` and `hedgeLeg.token` using SmartAPI LTP endpoint.
+   b. Calculate current mark-to-market P&L:
+      ```javascript
+      const pnl = (sellLeg.entryPrice - sellLeg.currentLTP) * quantity   // sell leg: profit as premium falls
+                + (hedgeLeg.currentLTP - hedgeLeg.entryPrice) * quantity; // hedge leg: gain/loss
+      ```
+   c. Update `positionTracker.updateCurrentPnL(pnl)`.
+   d. Log: `P&L: ₹${pnl.toFixed(2)} | Target: ₹${position.profitTarget} | SL: ₹${position.stopLoss}`
+   e. **If `pnl >= position.profitTarget`** → call `exitAllLegs(jwtToken, 'TARGET_HIT')` → `clearInterval` → resolve.
+   f. **If `pnl <= position.stopLoss`** → call `exitAllLegs(jwtToken, 'SL_HIT')` → `clearInterval` → resolve.
+4. The loop runs until TP/SL fires, or until `stopPnlMonitor()` is called externally (at 3:25 PM).
+
+**`exitAllLegs(jwtToken, reason)`:**
+- Places MARKET close orders for both legs (reverse transaction types).
+- Calls `positionTracker.updateLegStatus()` and `positionTracker.markExited(reason)`.
+- Logs exit reason, exit prices, and final realized P&L.
+
+**Margin Fetch (at entry):**
+```javascript
+// SmartAPI Funds/Margins endpoint to get margin blocked
+GET https://apiconnect.angelone.in/rest/secure/angelbroking/user/v1/getRMS
+// Or use margin calculator endpoint if available
+// Fallback: estimate margin as (sellStrike.strikePrice × lotSize × lots × 0.15) — approx 15% of notional
+// Store whichever is available as marginUsed in positionTracker
+```
+
+**Exports:**
+```javascript
+function startPnlMonitor(jwtToken) → void   // starts the interval, returns a Promise that resolves on exit
+function stopPnlMonitor() → void            // called at 3:25 PM if still running
+```
+
+---
+
+### 11. `modules/exitManager.js`
+
+**Purpose:** Hard force-exit at 3:25 PM IST. Exits ALL open legs unconditionally, regardless of P&L or ITM/OTM status. This is a time-based safety net — the normal exit path is `pnlMonitor.js`.
+
+**Logic:**
+1. Triggered at exactly 3:25 PM IST from `index.js`.
+2. Call `stopPnlMonitor()` first — prevent any race condition with the P&L loop.
+3. Check `positionTracker.getPosition()`.
+4. If `position.exitReason` is already set → position was already exited by TP/SL → log "Position already closed via P&L monitor. No action needed." → end.
+5. If position is still open:
+   - Exit **both legs** (sell leg + hedge leg) via MARKET orders, regardless of moneyness.
+   - Mark position as exited with reason `'FORCE_EXIT_3:25'`.
+6. Log final P&L summary.
+
+**Exports:**
+```javascript
+async function runForceExit(jwtToken) → void
+```
+
+---
+
+### 12. `utils/logger.js`
+
+**Purpose:** Centralized logging using Winston.
+
+**Configuration:**
+- Log to **console** (info level).
+- Log to **file** `./logs/algo-YYYY-MM-DD.log` (debug level).
+- Each log entry includes: timestamp, level, message, and optional metadata.
+
+**Exports:**
+```javascript
+const logger = winston.createLogger(...)
+module.exports = logger;
+```
+
+---
+
+### 13. `utils/helpers.js`
+
+**Purpose:** Utility functions used across modules.
+
+**Functions:**
+```javascript
+// Check if current IST time >= target time string "HH:MM"
+function isTimeReached(timeStr) → Boolean
+
+// Get current IST time as "HH:MM" string
+function getCurrentISTTime() → String
+
+// Round to nearest Nifty strike (multiples of 50)
+function roundToNearestStrike(price) → Number
+
+// Sleep utility
+function sleep(ms) → Promise
+
+// Calculate number of calendar days between two dates
+function daysBetween(dateA, dateB) → Number
+
+// Get last occurrence of a weekday in a given month/year
+function getLastWeekdayOfMonth(year, month, weekday) → Date
+```
+
+---
+
+### 14. `index.js` — Main Orchestrator
+
+**Full execution flow:**
+
+```javascript
+const { isTodayTradingDay } = require('./modules/holidayCheck');
+const { login } = require('./modules/auth');
+const { getExpiryDate } = require('./modules/expirySelector');
+const { getNiftyCandles, getNiftySpotPrice } = require('./modules/candleData');
+const { detectSignal } = require('./modules/rsiEngine');
+const { getOptionChain } = require('./modules/optionChain');
+const { pickSellStrike, pickHedgeStrike } = require('./modules/strikePicker');
+const { placeSpreadEntry } = require('./modules/orderManager');
+const { initPosition } = require('./modules/positionTracker');
+const { startPnlMonitor, stopPnlMonitor } = require('./modules/pnlMonitor');
+const { runForceExit } = require('./modules/exitManager');
+const { isTimeReached, sleep } = require('./utils/helpers');
+const logger = require('./utils/logger');
+const config = require('./config');
+const axios = require('axios');
+
+async function fetchMarginUsed(jwtToken) {
+  // Attempt to fetch RMS (Risk Management System) data for margin blocked
+  try {
+    const res = await axios.get(`${config.baseURL}/rest/secure/angelbroking/user/v1/getRMS`, {
+      headers: {
+        'Authorization': `Bearer ${jwtToken}`,
+        'X-PrivateKey': process.env.ANGEL_API_KEY,
+        'Content-Type': 'application/json',
+      }
+    });
+    // Extract net available margin or use spread margin estimation as fallback
+    const rmsData = res.data?.data;
+    if (rmsData?.net) return parseFloat(rmsData.net);
+  } catch (e) {
+    logger.warn('RMS margin fetch failed. Using estimated margin.');
+  }
+  // Fallback: estimate 15% of notional value of short leg
+  // Caller must pass sellStrike for fallback — handled in main()
+  return null;
+}
+
+async function main() {
+  logger.info('=== Nifty RSI Options Algo Started ===');
+
+  // STEP 1: Check if today is a valid NSE trading day
+  const isTradingDay = await isTodayTradingDay();
+  if (!isTradingDay) {
+    logger.info('Today is an NSE holiday or weekend. Algo exits.');
+    process.exit(0);
+  }
+  logger.info('Today is a valid NSE trading day. Proceeding...');
+
+  // STEP 2: Login
+  logger.info('Logging into SmartAPI...');
+  const session = await login();
+  const { jwtToken } = session;
+  logger.info('Login successful.');
+
+  // STEP 3: Determine expiry date to trade
+  const expiryDate = await getExpiryDate();
+  logger.info(`Trading expiry: ${expiryDate}`);
+
+  // STEP 4: Wait until entry monitoring start time (09:20 AM IST)
+  while (!isTimeReached(config.entryStartTime)) {
+    logger.info(`Waiting for entry start time ${config.entryStartTime}...`);
+    await sleep(30 * 1000);
+  }
+
+  // STEP 5: RSI monitoring loop — runs every 1 minute until signal or cutoff
+  let tradeTriggered = false;
+  logger.info('Starting RSI monitoring loop (1-min interval, 5-min candles)...');
+
+  while (!isTimeReached(config.entryCutoffTime) && !tradeTriggered) {
+    try {
+      // Fetch completed 5-min candles and compute RSI on latest close
+      const candles = await getNiftyCandles(jwtToken);
+      const { signal, rsi } = detectSignal(candles);
+      logger.info(`RSI: ${rsi.toFixed(2)} | Signal: ${signal || 'NONE'}`);
+
+      if (signal) {
+        logger.info(`RSI signal detected: ${signal} at RSI=${rsi.toFixed(2)}`);
+
+        // Fetch option chain and spot price
+        const optionChain = await getOptionChain(jwtToken, expiryDate);
+        const spotPrice = await getNiftySpotPrice(jwtToken);
+
+        // Pick sell strike and hedge strike
+        const sellStrike = pickSellStrike(signal, spotPrice, optionChain);
+        if (!sellStrike) {
+          logger.warn('No liquid sell strike found. Skipping signal, will retry next minute.');
+          await sleep(config.rsiCheckIntervalMs);
+          continue;
+        }
+
+        const hedgeStrike = pickHedgeStrike(signal, sellStrike, optionChain);
+        if (!hedgeStrike) {
+          logger.warn('No liquid hedge strike found. Skipping signal, will retry next minute.');
+          await sleep(config.rsiCheckIntervalMs);
+          continue;
+        }
+
+        logger.info(`Sell Strike: ${sellStrike.strikePrice} @ LTP ₹${sellStrike.ltp}`);
+        logger.info(`Hedge Strike: ${hedgeStrike.strikePrice} @ LTP ₹${hedgeStrike.ltp}`);
+
+        // Place the spread (sell + hedge)
+        const quantity = config.lots * config.lotSize;
+        const { sellOrderId, hedgeOrderId } = await placeSpreadEntry(jwtToken, {
+          sellStrike,
+          hedgeStrike,
+          signal,
+          quantity,
+        });
+
+        // Fetch margin used (or estimate fallback)
+        let marginUsed = await fetchMarginUsed(jwtToken);
+        if (!marginUsed) {
+          // Fallback: 15% of notional value of the short leg
+          marginUsed = sellStrike.strikePrice * config.lotSize * config.lots * 0.15;
+          logger.warn(`Using estimated margin: ₹${marginUsed.toFixed(2)}`);
+        }
+        logger.info(`Margin used: ₹${marginUsed.toFixed(2)}`);
+        logger.info(`Profit target: ₹${(marginUsed * config.profitTargetPct / 100).toFixed(2)} (+${config.profitTargetPct}%)`);
+        logger.info(`Stop loss: ₹${(marginUsed * config.stoplossPct / 100).toFixed(2)} (-${config.stoplossPct}%)`);
+
+        initPosition(signal, rsi, spotPrice, sellStrike, hedgeStrike, { sellOrderId, hedgeOrderId }, marginUsed, quantity);
+        logger.info('Spread placed. Position initiated. RSI monitoring stopped. Starting P&L monitor...');
+
+        // STEP 6: Start P&L monitor — will auto-exit on TP or SL
+        startPnlMonitor(jwtToken);
+        tradeTriggered = true;
+      }
+    } catch (err) {
+      logger.error('Error in RSI monitoring loop:', err);
+    }
+
+    if (!tradeTriggered) {
+      await sleep(config.rsiCheckIntervalMs); // wait 1 minute before next RSI check
+    }
+  }
+
+  if (!tradeTriggered) {
+    logger.info('No RSI signal before cutoff time. No trade placed today.');
+  }
+
+  // STEP 7: Wait until 3:25 PM hard exit time
+  while (!isTimeReached(config.finalExitTime)) {
+    await sleep(30 * 1000); // check every 30s for precision
+  }
+
+  // STEP 8: Force exit — stops P&L monitor and exits any remaining open position
+  if (tradeTriggered) {
+    logger.info('3:25 PM reached. Running force exit check...');
+    stopPnlMonitor();
+    await runForceExit(jwtToken);
+  } else {
+    logger.info('No positions to exit. Algo done for today.');
+  }
+
+  logger.info('=== Algo Completed for Today ===');
+  process.exit(0);
+}
+
+main().catch((err) => {
+  logger.error('Fatal error in main:', err);
+  process.exit(1);
+});
+```
+
+---
+
+## 🔁 Execution Flow Diagram
+
+```
+[index.js starts]
+       │
+       ▼
+[holidayCheck.js] → Holiday/Weekend? → EXIT
+       │ Valid trading day
+       ▼
+[auth.js] → SmartAPI login with TOTP (otplib)
+       │
+       ▼
+[expirySelector.js] → Determine expiry (weekly vs monthly)
+       │
+       ▼
+[Wait until 09:20 AM IST]
+       │
+       ▼
+┌──────────────────────────────────────────┐
+│  RSI MONITORING LOOP (every 1 minute)   │
+│                                          │
+│  [candleData.js] → latest 5-min candles │
+│        │                                 │
+│  [rsiEngine.js] → Calculate RSI on      │
+│                   latest closed candle  │
+│        │                                 │
+│  RSI ≥ 80? → signal: SELL_CALL          │
+│  RSI ≤ 20? → signal: SELL_PUT           │
+│  Neither?  → wait 1 min, loop           │
+│                                          │
+│  (stops if signal fires OR              │
+│   time reaches 3:00 PM)                 │
+└──────────────────────────────────────────┘
+       │ Signal fires
+       ▼
+[optionChain.js] → Fetch live option chain (LTP, OI, Volume)
+       │
+       ▼
+[strikePicker.js]
+  → pickSellStrike()  → OTM, liquid, 1-2 strikes from ATM
+  → pickHedgeStrike() → Further OTM, LTP ≈ sellPremium / 2, liquid
+       │
+       ▼
+[orderManager.js] → Place SELL order (short leg) + BUY order (hedge)
+       │
+       ▼
+[SmartAPI RMS] → Fetch margin used → compute TP (+1%) and SL (-2%) in ₹
+       │
+       ▼
+[positionTracker.js] → Record entry, margin, TP/SL thresholds
+       │
+       ▼
+┌──────────────────────────────────────────┐
+│  P&L MONITOR LOOP (every 1 minute)      │
+│                                          │
+│  [SmartAPI LTP] → fetch both leg prices │
+│        │                                 │
+│  Calculate currentPnL                   │
+│        │                                 │
+│  pnl >= profitTarget? → EXIT (TP) ✅    │
+│  pnl <= stopLoss?     → EXIT (SL) 🔴    │
+│  Neither?             → wait 1 min      │
+│                                          │
+│  (stops on TP/SL or when 3:25 PM fires) │
+└──────────────────────────────────────────┘
+       │
+       ▼
+[3:25 PM IST — hard cutoff]
+       │
+       ▼
+[stopPnlMonitor()] → halt P&L loop
+       │
+       ▼
+[exitManager.runForceExit()]
+  → Already exited? → Log "closed via TP/SL" → skip
+  → Still open?     → Exit ALL legs via MARKET order (force exit)
+       │
+       ▼
+[logger.js] → Log final P&L summary + exit reason
+       │
+       ▼
+[process.exit(0)] → DONE ✅
+```
+
+---
+
+## 🌐 SmartAPI Key Endpoints Reference
+
+| Action | Method | Endpoint |
+|--------|--------|----------|
+| Login | POST | `/rest/auth/angelbroking/user/v1/loginByPassword` |
+| Place Order | POST | `/rest/secure/angelbroking/order/v1/placeOrder` |
+| Get Order Status | GET | `/rest/secure/angelbroking/order/v1/details/{orderId}` |
+| Get Positions | GET | `/rest/secure/angelbroking/order/v1/getPosition` |
+| Option Chain | GET | `/rest/secure/angelbroking/marketData/v1/optionChain` |
+| Candle Data | POST | `/rest/secure/angelbroking/historical/v1/getCandleData` |
+| LTP Data | POST | `/rest/secure/angelbroking/marketData/v1/getLTPData` |
+| Get Margin (RMS) | GET | `/rest/secure/angelbroking/user/v1/getRMS` |
+| Cancel Order | POST | `/rest/secure/angelbroking/order/v1/cancelOrder` |
+
+**Base URL:** `https://apiconnect.angelone.in`
+
+**Required Headers for all authenticated requests:**
+```javascript
+{
+  'Authorization': `Bearer ${jwtToken}`,
+  'Content-Type': 'application/json',
+  'Accept': 'application/json',
+  'X-UserType': 'USER',
+  'X-SourceID': 'WEB',
+  'X-ClientLocalIP': '127.0.0.1',
+  'X-ClientPublicIP': '<your-server-public-ip>',
+  'X-MACAddress': '<your-mac-address>',
+  'X-PrivateKey': process.env.ANGEL_API_KEY
+}
+```
+
+---
+
+## ☁️ Cloud Deployment Notes
+
+### Running on Local Machine
+- Use `node-cron` inside `index.js` to schedule at **9:15 AM every weekday (Mon–Fri)**
+- Or use `pm2` with a cron restart rule: `0 9 * * 1-5` (9 AM Mon–Fri)
+
+### Migrating to GCP (Google Cloud Platform)
+- Use **GCP Cloud Scheduler** to trigger a **Cloud Run** job or **Cloud Function** at 9:15 AM IST daily on weekdays
+- Cloud Scheduler cron: `45 3 * * 1-5` (3:45 AM UTC = 9:15 AM IST, Mon–Fri)
+- Store secrets in **GCP Secret Manager** instead of `.env`
+- Containerize using **Docker** (Dockerfile included below)
+
+### Migrating to Oracle Cloud
+- Use a **Compute Instance** (always-on VM) with `node-cron`
+- Store secrets in **Oracle Vault**
+
+### Dockerfile (Cloud Ready)
+```dockerfile
+FROM node:18-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm install --production
+COPY . .
+CMD ["node", "index.js"]
+```
+
+> ⚠️ When running on cloud, ensure the server timezone is set to **Asia/Kolkata (IST)** or adjust all time comparisons to use IST offset (UTC+5:30).
+
+---
+
+## 🧪 Pre-Live Checklist
+
+Before going live, verify the following manually:
+
+- [ ] SmartAPI login works with TOTP generated by `otplib`
+- [ ] Candle data API returns 5-min OHLC for Nifty spot (token `26000`, exchange `NSE`)
+- [ ] RSI calculation produces sensible values (9:20 AM may have fewer than 15 candles — add a guard)
+- [ ] RSI monitoring loop fires every 1 minute correctly
+- [ ] Option chain returns LTP, OI, and volume for the correct expiry date
+- [ ] `strikePicker.js` correctly filters by OI and volume thresholds
+- [ ] Hedge premium selection lands near `sellPremium / 2` (verify manually on a sample chain)
+- [ ] SmartAPI RMS endpoint returns valid margin data; fallback estimation is reasonable
+- [ ] `pnlMonitor.js` correctly calculates spread P&L using live LTP on both legs
+- [ ] Profit target (+1% of margin) and stop loss (-2% of margin) thresholds compute correctly
+- [ ] `exitManager.runForceExit()` correctly skips if position already closed, exits if still open
+- [ ] Order placement works in SmartAPI sandbox (if available)
+- [ ] `expirySelector.js` correctly identifies last-week-of-month and returns monthly expiry
+- [ ] `holidayCheck.js` correctly identifies today as trading day / holiday
+- [ ] Logs are writing to `./logs/` correctly
+- [ ] `.env` is in `.gitignore`
+- [ ] Server time is IST or IST-adjusted
+- [ ] Lot size in `config.js` matches current NSE lot size for Nifty
+
+---
+
+## ⚠️ Important Warnings
+
+1. **RSI at market open:** At 9:20 AM, there may be fewer than `rsiPeriod + 1` candles available. Add a guard in `rsiEngine.js` — if candle count is insufficient, skip calculation and wait for the next 1-minute cycle.
+
+2. **1-min RSI check on 5-min candles:** The loop runs every minute but RSI values only meaningfully change at each new 5-min candle close. Consecutive 1-min checks within the same 5-min window will produce the same RSI value — this is expected and harmless. It ensures the signal is caught within 1 minute of a new candle forming.
+
+3. **Margin fetch accuracy:** SmartAPI's RMS endpoint may return net available funds rather than per-trade margin blocked. If so, use the built-in margin calculator endpoint or the 15% notional fallback. The fallback may over- or under-estimate actual SPAN + Exposure margin — verify with your broker before going live.
+
+4. **Race condition at 3:25 PM:** `stopPnlMonitor()` must be called before `runForceExit()` to prevent a TP/SL exit and force exit from firing simultaneously on the same position. The `setInterval` in `pnlMonitor` must be `clearInterval`-ed synchronously before the force exit proceeds.
+
+5. **Algo crash recovery:** Because orders are CARRYFORWARD (NRML), if the process crashes mid-day and misses the 3:25 PM exit, positions carry overnight without penalty. Implement a crash-recovery check at startup: on the next run, `positionTracker` state will be lost (in-memory), so query `GET /getPosition` from SmartAPI at startup to detect any open Nifty option positions from a previous session and exit them immediately before proceeding with the day's logic.
+
+5. **One trade per day:** Once a signal fires, stop the monitoring loop. Do NOT re-enter a second time even if RSI crosses a second threshold later in the day.
+
+6. **Market orders on illiquid strikes:** Always check liquidity (OI + volume) before selecting strikes. Never place a MARKET order on an illiquid strike — slippage can be severe.
+
+7. **Weekly expiry day:** Nifty weekly options switched from **Thursday to Monday** effective April 4, 2025. Confirm current expiry day on NSE before deploying and update `config.weeklyExpiryDay`.
+
+8. **Lot size:** As of late 2024, Nifty lot size = **25** (revised from 50). Always verify on NSE before deployment.
+
+9. **Token expiry:** SmartAPI JWT tokens expire. If the algo runs beyond token validity (~8 hours), implement token refresh logic in `auth.js` using the `refreshToken`.
+
+10. **Holiday list accuracy:** `nse-market-holidays` may lag for newly declared holidays. Cross-verify with the NSE website at the start of each month.
+
+11. **Strike intervals:** Nifty strikes are in **50-point intervals**. All strike rounding must use multiples of 50.
+
+12. **Rate limits:** SmartAPI has rate limits. The 1-min RSI polling loop makes 1 candle API call per minute, and the 1-min P&L loop makes 1 LTP API call per minute — both well within typical limits. Avoid adding extra calls inside these loops.
+
+13. **No signal days:** On low-volatility days, RSI may never reach 80 or 20. This is expected. The algo exits gracefully with no trade — this is correct behavior, not a bug.
+
+---
+
+## 📊 Sample Trade Example
+
+**Scenario:** RSI hits 82 at 10:15 AM. Nifty spot = 23,200.
+
+| Leg | Strike | Type | Action | LTP at Entry | Lots | Qty |
+|-----|--------|------|--------|--------------|------|-----|
+| Sell CALL | 23,300 | CE | SELL | ₹85 | 2 | 50 |
+| Buy CALL (hedge) | 23,500 | CE | BUY | ₹42 | 2 | 50 |
+
+**Net premium collected:** (85 − 42) × 50 = **₹2,150**
+
+**Margin used (SPAN + Exposure, fetched from RMS):** ₹45,000 *(example)*
+
+**Profit target:** 1% of ₹45,000 = **₹450** → exit when spread P&L ≥ +₹450
+
+**Stop loss:** 2% of ₹45,000 = **₹900** → exit when spread P&L ≤ −₹900
+
+---
+
+**How P&L is tracked (every 1 minute):**
+```
+currentPnL = (85 - sellLeg.currentLTP) × 50   ← sell leg gains as CALL premium falls
+           + (hedgeLeg.currentLTP - 42) × 50   ← hedge leg gain/loss
+```
+
+---
+
+**Exit Scenario A — Target Hit (normal case):**
+- At 11:30 AM, Nifty pulls back. Sell CALL LTP drops to ₹68, hedge CALL LTP drops to ₹31.
+- P&L = (85 − 68) × 50 + (31 − 42) × 50 = 850 − 550 = **+₹300** ← not yet
+- At 12:15 PM, sell CALL LTP = ₹58, hedge CALL LTP = ₹27.
+- P&L = (85 − 58) × 50 + (27 − 42) × 50 = 1350 − 750 = **+₹600** ✅ Target hit (≥ ₹450)
+- → `pnlMonitor` fires exit. Both legs closed via MARKET order. Algo ends.
+
+**Exit Scenario B — Stop Loss Hit:**
+- At 10:45 AM, Nifty rallies sharply. Sell CALL LTP rises to ₹103, hedge CALL LTP = ₹56.
+- P&L = (85 − 103) × 50 + (56 − 42) × 50 = −900 + 700 = **−₹200** ← not yet
+- At 11:00 AM, sell CALL LTP = ₹118, hedge CALL LTP = ₹64.
+- P&L = (85 − 118) × 50 + (64 − 42) × 50 = −1650 + 1100 = **−₹550** ← not yet
+- At 11:15 AM, sell CALL LTP = ₹130, hedge CALL LTP = ₹70.
+- P&L = (85 − 130) × 50 + (70 − 42) × 50 = −2250 + 1400 = **−₹850** ← not yet
+- At 11:30 AM, sell CALL LTP = ₹135, hedge CALL LTP = ₹72.
+- P&L = (85 − 135) × 50 + (72 − 42) × 50 = −2500 + 1500 = **−₹1,000** 🔴 SL hit (≤ −₹900)
+- → `pnlMonitor` fires exit. Both legs closed via MARKET order. Algo ends.
+
+**Exit Scenario C — 3:25 PM Force Exit (TP/SL never triggered):**
+- P&L oscillates between −₹300 and +₹200 all day, never hitting TP or SL.
+- At 3:25 PM, `exitManager.runForceExit()` is called.
+- Both legs closed via MARKET order regardless of moneyness or P&L.
+- Final P&L logged and algo ends.
+
+---
+
+## 🔚 End of Blueprint
+
+This document is self-contained. Any AI assistant or developer reading this blueprint has all the information needed to build this application from scratch without any additional explanation.
+
+**Build order recommendation:**
+1. `utils/logger.js`
+2. `utils/helpers.js`
+3. `modules/holidayCheck.js`
+4. `modules/auth.js`
+5. `modules/expirySelector.js`
+6. `modules/candleData.js`
+7. `modules/rsiEngine.js`
+8. `modules/optionChain.js`
+9. `modules/strikePicker.js`
+10. `modules/orderManager.js`
+11. `modules/positionTracker.js`
+12. `modules/pnlMonitor.js`
+13. `modules/exitManager.js`
+14. `config.js`
+15. `index.js`
