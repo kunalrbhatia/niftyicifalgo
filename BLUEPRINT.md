@@ -9,7 +9,7 @@
 
 ## 🧠 Strategy Overview
 
-This is an **intraday options strategy** that runs **only on Nifty 50 monthly expiry day**.
+This is a **carry forward options strategy** that runs **on Nifty 50 monthly expiry day**.
 
 ### Entry
 - Sell **25 Delta PUT** (Short PUT) — this is the **PUT WALL**
@@ -145,7 +145,7 @@ module.exports = {
   sellDelta: parseInt(process.env.SELL_DELTA) || 25,   // Short strike delta
   buyDelta: parseInt(process.env.BUY_DELTA) || 17,     // Wing delta
   lots: parseInt(process.env.LOTS) || 2,               // 1 lot = 50 qty, so 2 lots = 100 qty
-  lotSize: 50,                                          // Nifty lot size — VERIFY BEFORE USE
+  lotSize: 65,                                          // Nifty lot size — Revised to 65 in Jan 2026
 
   // Timing (IST — 24hr format)
   entryTime: process.env.ENTRY_TIME || '09:30',         // Place orders at
@@ -155,7 +155,7 @@ module.exports = {
   // Orders
   orderType: 'MARKET',                                  // Always market orders
   exchange: 'NFO',                                      // NSE F&O segment
-  productType: 'INTRADAY',                              // Intraday product
+  productType: 'CARRYFORWARD',                        // Carry forward product
 
   // Instrument
   symbol: 'NIFTY',
@@ -278,7 +278,7 @@ Body: {
   "transactiontype": "BUY" | "SELL",
   "exchange": "NFO",
   "ordertype": "MARKET",
-  "producttype": "INTRADAY",
+  "producttype": "CARRYFORWARD",
   "duration": "DAY",
   "price": "0",
   "quantity": "100"   // 2 lots × 50 = 100
@@ -676,7 +676,7 @@ Before going live, verify the following manually:
 
 4. **Holiday list accuracy:** `nse-market-holidays` package may not always be up to date for newly declared holidays. Cross-verify with NSE website at the start of each month.
 
-5. **Lot size changes:** NSE occasionally revises Nifty lot sizes. Always verify current lot size before deploying. As of 2025–2026, Nifty lot size = **25** (verify this — it was revised from 50 to 25 in late 2024).
+5. Lot size changes: NSE occasionally revises Nifty lot sizes. Always verify current lot size before deploying. As of 2026, Nifty lot size = **65** (Revised from 75 to 65 effective Jan 2026).
 
 6. **Strike intervals:** Nifty strikes are in **50-point intervals**. ATM selection must round to nearest 50.
 
@@ -688,10 +688,10 @@ Before going live, verify the following manually:
 
 | Leg | Strike | Delta | Action | Lots | Qty |
 |-----|--------|-------|--------|------|-----|
-| Sell PUT | 23,000 | -0.25 | SELL | 2 | 100 |
-| Buy PUT | 22,700 | -0.17 | BUY | 2 | 100 |
-| Sell CALL | 23,500 | +0.25 | SELL | 2 | 100 |
-| Buy CALL | 23,750 | +0.17 | BUY | 2 | 100 |
+| Sell PUT | 23,000 | -0.25 | SELL | 2 | 130 |
+| Buy PUT | 22,700 | -0.17 | BUY | 2 | 130 |
+| Sell CALL | 23,500 | +0.25 | SELL | 2 | 130 |
+| Buy CALL | 23,750 | +0.17 | BUY | 2 | 130 |
 
 **If Nifty drops to 23,000 (PUT WALL hit):**
 - Buy back BUY CALL (17Δ wing) → close it

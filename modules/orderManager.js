@@ -1,5 +1,6 @@
 const axios = require('axios');
 const logger = require('../utils/logger');
+const config = require('../config');
 require('dotenv').config();
 
 const BASE_URL = 'https://apiconnect.angelone.in';
@@ -17,9 +18,9 @@ async function placeOrder(jwtToken, { tradingSymbol, token, transactionType, qua
       tradingsymbol: tradingSymbol,
       symboltoken: token,
       transactiontype: transactionType,
-      exchange: 'NFO',
-      ordertype: 'MARKET',
-      producttype: 'INTRADAY',
+      exchange: config.exchange || 'NFO',
+      ordertype: config.orderType || 'MARKET',
+      producttype: config.productType || 'CARRYFORWARD',
       duration: 'DAY',
       price: '0',
       quantity: quantity.toString()
@@ -58,7 +59,6 @@ async function placeOrder(jwtToken, { tradingSymbol, token, transactionType, qua
  * @returns {Promise<object>}
  */
 async function placeIronCondorEntry(jwtToken, strikes) {
-  const config = require('../config');
   const { lotSize, lots } = config;
   const quantity = lots * lotSize;
 

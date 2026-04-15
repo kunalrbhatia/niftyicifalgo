@@ -14,7 +14,7 @@ module.exports = {
   // Orders
   orderType: 'MARKET',                                  // Always market orders
   exchange: 'NFO',                                      // NSE F&O segment
-  productType: 'INTRADAY',                              // Intraday product
+  productType: 'CARRYFORWARD',                          // Carry forward product
 
   // Instrument
   symbol: 'NIFTY',
