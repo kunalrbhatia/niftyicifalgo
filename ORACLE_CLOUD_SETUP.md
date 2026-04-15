@@ -6,16 +6,29 @@ This guide provides step-by-step instructions to host your Nifty Positional Iron
 
 ## 🚀 1. Provisioning your Instance
 1.  **Sign in**: [Oracle Cloud Console](https://cloud.oracle.com/?region=ap-mumbai-1).
-2.  **Navigate**: Compute > Instances > Create Instance.
-3.  **Image**: Choose **Ubuntu 22.04** (Always Free Eligible).
-4.  **Shape**: Select **VM.Standard.E4.Flex** (the free ARM shape is best).
-5.  **Networking**: Ensure "Assign a public IPv4 address" is checked.
-6.  **SSH Keys**: Download the **Private Key (.key)** to your computer.
-7.  **Create**: Wait for the instance to show "Running".
+2.  **Navigate**: Compute > Instances > **Create Instance**.
+3.  **Image and Shape**:
+    *   **Image**: Ubuntu 22.04 (Always Free Eligible).
+    *   **Shape**: VM.Standard.E4.Flex (ARM-based).
+4.  **Networking**: Ensure **"Assign a public IPv4 address"** is selected.
+5.  **Add SSH Keys (CRITICAL)**:
+    *   Choose **"Generate a key pair for me"**.
+    *   Click **"Save private key"** (Download the `.key` file). **You cannot download this again later.**
+    *   (Optional) Save public key as well.
+6.  **Create**: Click Create at the bottom and wait 1-2 minutes.
+
+## 📍 2. Finding your Instance IP
+1.  Once your instance status is **"Running"**, stay on the **Instance details** page.
+2.  Look for the **"Instance access"** section on the right.
+3.  Find **"Public IP address"**.
+4.  **Copy this IP.** You will need it for:
+    *   Connecting via SSH.
+    *   Whitelisting in your Angel One SmartAPI portal.
+    *   Updating your `.env` file (`ANGEL_PUBLIC_IP`).
 
 ---
 
-## 🛠️ 2. Server Preparation
+## 🛠️ 3. Server Preparation
 Once the instance is running, connect via SSH (replace `<your-ip>` and `<your-key.key>`):
 ```bash
 ssh -i your-key.key ubuntu@<your-ip>
@@ -43,7 +56,7 @@ nano .env
 
 ---
 
-## 📅 3. Scheduling with CRON (3:00 PM IST)
+## 📅 4. Scheduling with CRON (3:00 PM IST)
 Oracle Cloud servers typically use **UTC time**. 
 *   **3:00 PM IST** = **09:30 AM UTC**.
 *   **9:00 AM IST** = **03:30 AM UTC** (Time to refresh tokens).
@@ -64,7 +77,7 @@ Add these two lines at the bottom:
 
 ---
 
-## 🔐 4. Angel One Whitelisting (CRITICAL)
+## 🔐 5. Angel One Whitelisting (CRITICAL)
 Your Oracle Cloud server has a **static public IP**. You **MUST** whitelist this IP in your Angel One SmartAPI portal:
 1.  Run `curl ifconfig.me` on your server to get its IP.
 2.  Log in to [SmartAPI Portal](https://smartapi.angelbroking.com/).
@@ -72,7 +85,7 @@ Your Oracle Cloud server has a **static public IP**. You **MUST** whitelist this
 
 ---
 
-## 📊 5. Monitoring Logs
+## 📊 6. Monitoring Logs
 To check if your algo ran successfully via CRON:
 ```bash
 tail -f /home/ubuntu/niftyicifalgo/logs/cron_algo.log
