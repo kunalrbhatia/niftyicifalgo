@@ -3,4 +3,3 @@ node_modules
 logs/*.log
 scrip_master.json
 nifty_expiry_master.json
-filter_scrips.js

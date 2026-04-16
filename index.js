@@ -10,10 +10,43 @@ const { isTimeReached, sleep } = require('./utils/helpers');
 const logger = require('./utils/logger');
 require('dotenv').config();
 
+const { downloadAndFilterScrips } = require('./filter_scrips');
+const fs = require('fs');
+const path = require('path');
+const moment = require('moment-timezone');
+
 async function main() {
   logger.info('=== Nifty Positional Algo Started ===');
 
   try {
+    // STEP 0: Ensure scrip master is fresh (Updated daily at 9 AM IST)
+    const masterPath = path.join(__dirname, 'scrip_master.json');
+    let shouldUpdate = false;
+    
+    if (!fs.existsSync(masterPath)) {
+      logger.info('Scrip master file NOT found. Triggering update...');
+      shouldUpdate = true;
+    } else {
+      const stats = fs.statSync(masterPath);
+      const lastModified = moment(stats.mtime).tz('Asia/Kolkata');
+      const today9AM = moment().tz('Asia/Kolkata').set({ hour: 9, minute: 0, second: 0, millisecond: 0 });
+      
+      // If last modified is BEFORE today's 9 AM, and we are AFTER today's 9 AM, then update
+      if (lastModified.isBefore(today9AM) && moment().tz('Asia/Kolkata').isAfter(today9AM)) {
+        logger.info('Scrip master is from yesterday or before 9 AM today. Triggering update...');
+        shouldUpdate = true;
+      }
+    }
+
+    if (shouldUpdate) {
+      const success = await downloadAndFilterScrips();
+      if (!success) {
+        throw new Error('Failed to update scrip master. Cannot proceed.');
+      }
+    } else {
+      logger.info('Scrip master is already up-to-date.');
+    }
+
     // STEP 1: Check if today is a trading day
     const { isTodayTrading, isExpiry } = await isTodayExpiryDay();
     if (!isTodayTrading) {

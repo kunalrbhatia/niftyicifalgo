@@ -126,10 +126,10 @@ const exportsObj = {
   enrichStrikes: async function(jwtToken, strikes) {
     const fs = require('fs');
     const path = require('path');
-    const masterPath = path.join(__dirname, '../nifty_expiry_master.json');
+    const masterPath = path.join(__dirname, '../scrip_master.json');
     
     if (!fs.existsSync(masterPath)) {
-      throw new Error('Nifty expiry master file not found. Please run filter_scrips.js first.');
+      throw new Error('Scrip master file not found. Please run filter_scrips.js first.');
     }
 
     const master = JSON.parse(fs.readFileSync(masterPath, 'utf8'));
