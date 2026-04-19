@@ -1,5 +1,6 @@
 node_modules
 .env
 logs/*.log
+logs/pnl_history.json
 scrip_master.json
 nifty_expiry_master.json

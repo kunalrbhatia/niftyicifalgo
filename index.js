@@ -8,6 +8,7 @@ const { performSingleWallCheck } = require('./modules/wallMonitor');
 const { runFinalExitCheck } = require('./modules/exitManager');
 const { isTimeReached, sleep } = require('./utils/helpers');
 const { sendTelegramMessage } = require('./utils/notifier');
+const pnlTracker = require('./utils/pnlTracker');
 const logger = require('./utils/logger');
 require('dotenv').config();
 
@@ -139,8 +140,14 @@ async function main() {
       summary += '🏁 Final ITM exit check completed.\n';
     }
 
+    // STEP 7: Daily P&L Sync (Capture realized P&L from positions)
+    logger.info('Syncing daily realized P&L...');
+    await pnlTracker.syncDailyRealizedPnL(jwtToken);
+
     logger.info('=== Daily Algo Run Completed ===');
-    summary += '\n✨ <b>Algo run completed successfully.</b>';
+    const monthlyPnL = pnlTracker.getMonthlyPnL();
+    summary += `\n💰 <b>Current Month P&L:</b> ${monthlyPnL.toFixed(2)}`;
+    summary += '\n\n✨ <b>Algo run completed successfully.</b>';
     await sendTelegramMessage(summary);
     process.exit(0);
   } catch (error) {
