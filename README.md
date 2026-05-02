@@ -1,33 +1,83 @@
-# Nifty 50 Weekly Expiry Iron Condor → Iron Butterfly Algo
+# 🦅 Nifty Monthly Iron Condor Algo (Positional)
 
-An automated trading strategy for Nifty 50 weekly expiry days using Angel One SmartAPI.
+An automated, positional trading strategy for Nifty 50 monthly options using Angel One's SmartAPI. This algo manages an Iron Condor from entry (early in the month) through a single risk-adjustment phase, finally exiting on expiry day.
 
-## Strategy Overview
-- **Entry:** Iron Condor (25Δ Short Legs, 17Δ Long Legs) at 09:30 AM.
-- **Adjustment:** If spot touches a short strike, roll the opposite side to ATM (convert to Iron Butterfly).
-- **Exit:** At 03:25 PM, check all open legs. Exit ITM legs only; leave OTM legs to expire.
+## 🧠 Strategy Overview
 
-## Setup
-1. Clone the repository.
-2. Run `npm install`.
-3. Create a `.env` file based on `.env.example` with your Angel One credentials.
-4. Start the algo: `node index.js`.
+- **Instrument:** NIFTY 50 Monthly Options.
+- **Product Type:** `CARRYFORWARD` (NRML) — positions are held across days.
+- **Entry Logic:** 
+  - Initiated only if today's date is **on or before the 15th** of the month.
+  - Automatically detects if positions for the current monthly expiry already exist.
+  - Sells **25Δ (Delta)** Call and Put; Buys **17Δ** Call and Put for protection.
+- **Adjustment Logic (The "Wall" Rule):**
+  - Performs a daily "Wall Check" at startup.
+  - If Spot price $\le$ Short Put strike OR Spot price $\ge$ Short Call strike:
+    - The opposite side is rolled to ATM (At-The-Money).
+    - The Iron Condor is converted into an **Iron Butterfly**.
+    - This adjustment happens **exactly once** per expiry cycle.
+- **Exit Logic:**
+  - On Expiry Day at **03:25 PM IST**.
+  - Automatically exits **ITM (In-The-Money) legs** via Market orders.
+  - OTM legs are left to expire worthless to save on brokerage.
 
-## Dependencies
-- `axios`
-- `otplib`
-- `nse-market-holidays`
-- `moment-timezone`
-- `dotenv`
-- `winston`
-- `node-cron`
-- `ws`
+## 🛠️ Key Features
 
-## Project Structure
-- `modules/`: Core strategy logic (auth, option chain, orders, etc.)
-- `utils/`: Helpers and logging.
-- `config.js`: Strategy configuration.
-- `index.js`: Main orchestrator.
+- **State Reconstruction:** No database required. Every morning, the algo queries your Angel One account, identifies open Nifty legs, and reconstructs its internal state (strikes, tokens, adjustment status).
+- **Auto-Scrip Management:** Downloads and filters the latest Angel One Scrip Master daily at 09:00 AM to ensure symbol tokens and expiry dates are always accurate.
+- **Telegram Integration:** Sends a detailed daily summary including scrip updates, entry details, wall check results, and current month's realized P&L.
+- **PnL Tracking:** Maintains a local record of realized P&L to track performance over time.
+- **Rate-Limit Aware:** Implements necessary delays between API calls to stay within SmartAPI's rate limits.
+- **2026 Ready:** Includes a hardcoded NSE holiday list for 2026 for reliable execution.
 
-## Disclaimer
-Automated trading carries risks. Ensure you have tested the strategy thoroughly in a paper trading environment before going live.
+## 📂 Project Structure
+
+- `index.js`: Main orchestrator — handles the daily lifecycle.
+- `config.js`: Central configuration for deltas, lot sizes, and timings.
+- `filter_scrips.js`: Downloads and prepares the `scrip_master.json`.
+- `modules/`:
+    - `auth.js`: Handles SmartAPI login and TOTP.
+    - `positionTracker.js`: Reconstructs the strategy state from live positions.
+    - `wallMonitor.js`: Logic for monitoring price levels against short strikes.
+    - `adjustEngine.js`: Executes the "Roll to ATM" adjustment orders.
+    - `exitManager.js`: Manages the 3:25 PM ITM exit check on expiry.
+    - `optionChain.js`: Fetches LTPs, Greeks, and finds expiry dates.
+    - `deltaFinder.js`: Identifies the best strikes for the target deltas.
+- `utils/`: Logging (`winston`), Telegram notifications, and mathematical helpers.
+
+## 🚀 Setup & Installation
+
+1. **Clone & Install:**
+   ```bash
+   git clone <repo-url>
+   npm install
+   ```
+
+2. **Environment Variables:**
+   Create a `.env` file based on `.env.example`:
+   ```env
+   ANGEL_API_KEY=your_api_key
+   ANGEL_CLIENT_ID=your_client_id
+   ANGEL_PASSWORD=your_password
+   ANGEL_TOTP_SECRET=your_totp_secret
+   ANGEL_PUBLIC_IP=your_ip
+
+   TELEGRAM_BOT_TOKEN=your_bot_token
+   TELEGRAM_CHAT_ID=your_chat_id
+   ```
+
+3. **Run the Algo:**
+   ```bash
+   node index.js
+   ```
+
+## 🧪 Backtesting & Testing
+
+- **Backtest:** `node backtest.js <jwtToken>`
+  - Simulates the strategy over the last 6 months using historical Nifty data and Black-Scholes premium estimation.
+- **Test Greeks:** `node test_greeks.js <jwtToken>`
+  - Verifies that Angel One's Greek API is returning data for the specified expiries.
+
+## ⚖️ Disclaimer
+
+Trading in options involves significant risk. This software is provided "as is" for educational and research purposes. Always test thoroughly in a paper trading environment before deploying real capital.
