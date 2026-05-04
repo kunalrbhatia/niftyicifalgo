@@ -61,19 +61,36 @@ async function getHistoricalCandles(jwtToken, publicIP, date) {
 }
 
 function findBacktestStrikes(spot, tInYears) {
-    // We iterate through strikes every 50 points to find closest to target delta
+    // We iterate through strikes every 50 points to find absolute closest to target delta
     const strikes = [];
     const baseStrike = Math.round(spot / 50) * 50;
-    for (let s = baseStrike - 1000; s <= baseStrike + 1000; s += 50) {
+    for (let s = baseStrike - 2000; s <= baseStrike + 2000; s += 50) {
         const pDelta = calculateDelta('PE', spot, s, tInYears, R, IV);
         const cDelta = calculateDelta('CE', spot, s, tInYears, R, IV);
         strikes.push({ strike: s, pDelta, cDelta });
     }
 
-    const sellPut = strikes.reduce((prev, curr) => Math.abs(curr.pDelta + 0.25) < Math.abs(prev.pDelta + 0.25) ? curr : prev);
-    const buyPut = strikes.filter(s => s.strike < sellPut.strike).reduce((prev, curr) => Math.abs(curr.pDelta + 0.17) < Math.abs(prev.pDelta + 0.17) ? curr : prev);
-    const sellCall = strikes.reduce((prev, curr) => Math.abs(curr.cDelta - 0.25) < Math.abs(prev.cDelta - 0.25) ? curr : prev);
-    const buyCall = strikes.filter(s => s.strike > sellCall.strike).reduce((prev, curr) => Math.abs(curr.cDelta - 0.17) < Math.abs(prev.cDelta - 0.17) ? curr : prev);
+    // --- PUT SIDE ---
+    let sellPut = strikes.reduce((prev, curr) => Math.abs(curr.pDelta + 0.25) < Math.abs(prev.pDelta + 0.25) ? curr : prev);
+    if (sellPut.strike % 100 !== 0) {
+        sellPut = strikes.find(s => s.strike === sellPut.strike - 50) || sellPut;
+    }
+
+    let buyPut = strikes.filter(s => s.strike < sellPut.strike).reduce((prev, curr) => Math.abs(curr.pDelta + 0.17) < Math.abs(prev.pDelta + 0.17) ? curr : prev);
+    if (buyPut.strike % 100 !== 0) {
+        buyPut = strikes.find(s => s.strike === buyPut.strike - 50) || buyPut;
+    }
+
+    // --- CALL SIDE ---
+    let sellCall = strikes.reduce((prev, curr) => Math.abs(curr.cDelta - 0.25) < Math.abs(prev.cDelta - 0.25) ? curr : prev);
+    if (sellCall.strike % 100 !== 0) {
+        sellCall = strikes.find(s => s.strike === sellCall.strike + 50) || sellCall;
+    }
+
+    let buyCall = strikes.filter(s => s.strike > sellCall.strike).reduce((prev, curr) => Math.abs(curr.cDelta - 0.17) < Math.abs(prev.cDelta - 0.17) ? curr : prev);
+    if (buyCall.strike % 100 !== 0) {
+        buyCall = strikes.find(s => s.strike === buyCall.strike + 50) || buyCall;
+    }
 
     return { sellPut, buyPut, sellCall, buyCall };
 }

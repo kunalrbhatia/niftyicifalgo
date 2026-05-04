@@ -49,12 +49,12 @@ function getCurrentISTTime() {
 }
 
 /**
- * Round to nearest Nifty strike (multiples of 50)
+ * Round to nearest Nifty strike (multiples of 100)
  * @param {number} price 
  * @returns {number}
  */
 function roundToNearestStrike(price) {
-  return Math.round(price / 50) * 50;
+  return Math.round(price / 100) * 100;
 }
 
 /**

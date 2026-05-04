@@ -20,9 +20,9 @@ async function adjustCallSide(jwtToken) {
     const spotPrice = await optionChain.getNiftySpotPrice(jwtToken);
     const chain = await optionChain.getOptionChain(jwtToken);
     
-    // Find ATM CALL strike
+    // Find ATM CALL strike (strictly 100-point intervals)
     const atmCall = chain
-      .filter(o => o.optionType === 'CE')
+      .filter(o => o.optionType === 'CE' && o.strikePrice % 100 === 0)
       .reduce((prev, curr) => 
         Math.abs(curr.strikePrice - spotPrice) < Math.abs(prev.strikePrice - spotPrice) ? curr : prev
       );
@@ -75,9 +75,9 @@ async function adjustPutSide(jwtToken) {
     const spotPrice = await optionChain.getNiftySpotPrice(jwtToken);
     const chain = await optionChain.getOptionChain(jwtToken);
 
-    // Find ATM PUT strike
+    // Find ATM PUT strike (strictly 100-point intervals)
     const atmPut = chain
-      .filter(o => o.optionType === 'PE')
+      .filter(o => o.optionType === 'PE' && o.strikePrice % 100 === 0)
       .reduce((prev, curr) => 
         Math.abs(curr.strikePrice - spotPrice) < Math.abs(prev.strikePrice - spotPrice) ? curr : prev
       );
