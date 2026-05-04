@@ -1,20 +1,20 @@
 const axios = require('axios');
 const moment = require('moment-timezone');
-const { calculateDelta, roundToNearestStrike } = require('./utils/helpers');
+const { calculateDelta, roundToNearestStrike, getPublicIP } = require('./utils/helpers');
 const { getLastSixExpiries } = require('./utils/backtest_utils');
 const logger = require('./utils/logger');
 require('dotenv').config();
 
 const BASE_URL = 'https://apiconnect.angelone.in';
 
-const commonHeaders = (jwtToken) => ({
+const commonHeaders = (jwtToken, publicIP) => ({
   'Authorization': `Bearer ${jwtToken}`,
   'Content-Type': 'application/json',
   'Accept': 'application/json',
   'X-UserType': 'USER',
   'X-SourceID': 'WEB',
   'X-ClientLocalIP': '127.0.0.1',
-  'X-ClientPublicIP': process.env.ANGEL_PUBLIC_IP || '103.160.108.203',
+  'X-ClientPublicIP': publicIP,
   'X-MACAddress': '02:00:00:00:00:00',
   'X-PrivateKey': process.env.ANGEL_API_KEY,
   'User-Agent': 'Mozilla/5.0'
@@ -43,7 +43,7 @@ function calculatePremium(type, S, K, T, r, sigma) {
   }
 }
 
-async function getHistoricalCandles(jwtToken, date) {
+async function getHistoricalCandles(jwtToken, publicIP, date) {
   const payload = {
     exchange: 'NSE',
     symboltoken: '99926000', // NIFTY 50 INDEX
@@ -52,7 +52,7 @@ async function getHistoricalCandles(jwtToken, date) {
     todate: `${date} 15:30`
   };
 
-  const response = await axios.post(`${BASE_URL}/rest/secure/angelbroking/historical/v1/getCandleData`, payload, { headers: commonHeaders(jwtToken) });
+  const response = await axios.post(`${BASE_URL}/rest/secure/angelbroking/historical/v1/getCandleData`, payload, { headers: commonHeaders(jwtToken, publicIP) });
   if (response.data.status === true) {
     return response.data.data; // [timestamp, O, H, L, C, V]
   } else {
@@ -78,9 +78,9 @@ function findBacktestStrikes(spot, tInYears) {
     return { sellPut, buyPut, sellCall, buyCall };
 }
 
-async function backtestDate(jwtToken, date) {
+async function backtestDate(jwtToken, publicIP, date) {
     logger.info(`--- Backtesting Date: ${date} ---`);
-    const candles = await getHistoricalCandles(jwtToken, date);
+    const candles = await getHistoricalCandles(jwtToken, publicIP, date);
     
     // 09:30 Entry
     const entryCandle = candles.find(c => c[0].includes('09:30'));
@@ -203,12 +203,13 @@ async function runBacktest() {
         process.exit(1);
     }
 
+    const publicIP = await getPublicIP();
     const expiries = getLastSixExpiries();
     const results = [];
 
     for (const date of expiries) {
         try {
-            const res = await backtestDate(jwtToken, date);
+            const res = await backtestDate(jwtToken, publicIP, date);
             if (res) results.push(res);
         } catch (e) {
             logger.error(`Error backtesting ${date}: ${e.message}`);

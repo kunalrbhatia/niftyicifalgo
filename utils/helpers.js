@@ -1,4 +1,25 @@
 const moment = require('moment-timezone');
+const axios = require('axios');
+
+let cachedIP = null;
+
+/**
+ * Get the current public IPv4 address.
+ * Caches the result to avoid repeated external calls.
+ * @returns {Promise<string>}
+ */
+async function getPublicIP() {
+  if (cachedIP) return cachedIP;
+  
+  try {
+    const response = await axios.get('https://api.ipify.org?format=json');
+    cachedIP = response.data.ip;
+    return cachedIP;
+  } catch (error) {
+    // Fallback to a default if fetch fails
+    return process.env.ANGEL_PUBLIC_IP || '103.160.108.203';
+  }
+}
 
 /**
  * Check if current IST time >= target time string "HH:MM"
@@ -76,6 +97,7 @@ function calculateDelta(optionType, S, K, T, r, sigma) {
 }
 
 module.exports = {
+  getPublicIP,
   isTimeReached,
   getCurrentISTTime,
   roundToNearestStrike,

@@ -46,18 +46,22 @@ function savePnLRecord(record) {
  */
 async function syncDailyRealizedPnL(jwtToken) {
   try {
+    const { getPublicIP } = require('./helpers');
+    const publicIP = await getPublicIP();
+
     const headers = {
       'Authorization': `Bearer ${jwtToken}`,
       'Content-Type': 'application/json',
       'Accept': 'application/json',
-      'X-User-Type': 'USER',
+      'X-UserType': 'USER',
       'X-SourceID': 'WEB',
       'X-ClientLocalIP': '127.0.0.1',
-      'X-ClientPublicIP': process.env.ANGEL_PUBLIC_IP || '103.160.108.203',
+      'X-ClientPublicIP': publicIP,
       'X-MACAddress': '02:00:00:00:00:00',
       'X-PrivateKey': process.env.ANGEL_API_KEY,
       'User-Agent': 'Mozilla/5.0'
     };
+
 
     const response = await axios.get('https://apiconnect.angelone.in/rest/secure/angelbroking/order/v1/getPosition', { headers });
     

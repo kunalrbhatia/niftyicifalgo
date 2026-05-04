@@ -1,5 +1,6 @@
 const axios = require('axios');
 const logger = require('../utils/logger');
+const { getPublicIP } = require('../utils/helpers');
 require('dotenv').config();
 
 const BASE_URL = 'https://apiconnect.angelone.in';
@@ -38,6 +39,7 @@ function initPosition(strikes, orderIds) {
  */
 async function hasOpenPositions(jwtToken) {
   try {
+    const publicIP = await getPublicIP();
     const headers = {
       'Authorization': `Bearer ${jwtToken}`,
       'Content-Type': 'application/json',
@@ -45,7 +47,7 @@ async function hasOpenPositions(jwtToken) {
       'X-UserType': 'USER',
       'X-SourceID': 'WEB',
       'X-ClientLocalIP': '127.0.0.1',
-      'X-ClientPublicIP': process.env.ANGEL_PUBLIC_IP || '103.160.108.203',
+      'X-ClientPublicIP': publicIP,
       'X-MACAddress': '02:00:00:00:00:00',
       'X-PrivateKey': process.env.ANGEL_API_KEY,
       'User-Agent': 'Mozilla/5.0'
@@ -86,6 +88,7 @@ async function hasOpenPositions(jwtToken) {
  */
 async function reconstructState(jwtToken) {
   try {
+    const publicIP = await getPublicIP();
     const headers = {
       'Authorization': `Bearer ${jwtToken}`,
       'Content-Type': 'application/json',
@@ -93,7 +96,7 @@ async function reconstructState(jwtToken) {
       'X-UserType': 'USER',
       'X-SourceID': 'WEB',
       'X-ClientLocalIP': '127.0.0.1',
-      'X-ClientPublicIP': process.env.ANGEL_PUBLIC_IP || '103.160.108.203',
+      'X-ClientPublicIP': publicIP,
       'X-MACAddress': '02:00:00:00:00:00',
       'X-PrivateKey': process.env.ANGEL_API_KEY,
       'User-Agent': 'Mozilla/5.0'

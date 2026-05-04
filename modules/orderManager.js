@@ -1,14 +1,15 @@
 const axios = require('axios');
 const logger = require('../utils/logger');
 const config = require('../config');
+const { getPublicIP } = require('../utils/helpers');
 require('dotenv').config();
 
 const BASE_URL = 'https://apiconnect.angelone.in';
 
 /**
  * Place a single leg order via SmartAPI.
- * @param {string} jwtToken 
- * @param {object} orderParams 
+ * @param {string} jwtToken
+ * @param {object} orderParams
  * @returns {Promise<string>} - orderId
  */
 async function placeOrder(jwtToken, { tradingSymbol, token, transactionType, quantity }) {
@@ -26,6 +27,8 @@ async function placeOrder(jwtToken, { tradingSymbol, token, transactionType, qua
       quantity: quantity.toString()
     };
 
+    const publicIP = await getPublicIP();
+
     const headers = {
       'Authorization': `Bearer ${jwtToken}`,
       'Content-Type': 'application/json',
@@ -33,7 +36,7 @@ async function placeOrder(jwtToken, { tradingSymbol, token, transactionType, qua
       'X-UserType': 'USER',
       'X-SourceID': 'WEB',
       'X-ClientLocalIP': '127.0.0.1',
-      'X-ClientPublicIP': process.env.ANGEL_PUBLIC_IP || '103.160.108.203',
+      'X-ClientPublicIP': publicIP,
       'X-MACAddress': '02:00:00:00:00:00',
       'X-PrivateKey': process.env.ANGEL_API_KEY,
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -51,7 +54,6 @@ async function placeOrder(jwtToken, { tradingSymbol, token, transactionType, qua
     throw error;
   }
 }
-
 /**
  * Place all 4 legs of Iron Condor entry.
  * @param {string} jwtToken 
@@ -97,6 +99,8 @@ async function exitLeg(jwtToken, { tradingSymbol, token, transactionType, quanti
  */
 async function getOrderStatus(jwtToken, orderId) {
   try {
+    const publicIP = await getPublicIP();
+
     const headers = {
       'Authorization': `Bearer ${jwtToken}`,
       'Content-Type': 'application/json',
@@ -104,7 +108,7 @@ async function getOrderStatus(jwtToken, orderId) {
       'X-UserType': 'USER',
       'X-SourceID': 'WEB',
       'X-ClientLocalIP': '127.0.0.1',
-      'X-ClientPublicIP': process.env.ANGEL_PUBLIC_IP || '103.160.108.203',
+      'X-ClientPublicIP': publicIP,
       'X-MACAddress': '02:00:00:00:00:00',
       'X-PrivateKey': process.env.ANGEL_API_KEY,
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'

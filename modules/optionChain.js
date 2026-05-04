@@ -1,19 +1,19 @@
 const axios = require('axios');
 const moment = require('moment-timezone');
-const { calculateDelta } = require('../utils/helpers');
+const { calculateDelta, getPublicIP } = require('../utils/helpers');
 const logger = require('../utils/logger');
 require('dotenv').config();
 
 const BASE_URL = 'https://apiconnect.angelone.in';
 
-const commonHeaders = (jwtToken) => ({
+const commonHeaders = (jwtToken, publicIP) => ({
   'Authorization': `Bearer ${jwtToken}`,
   'Content-Type': 'application/json',
   'Accept': 'application/json',
   'X-UserType': 'USER',
   'X-SourceID': 'WEB',
   'X-ClientLocalIP': '127.0.0.1',
-  'X-ClientPublicIP': process.env.ANGEL_PUBLIC_IP || '103.160.108.203',
+  'X-ClientPublicIP': publicIP,
   'X-MACAddress': '02:00:00:00:00:00',
   'X-PrivateKey': process.env.ANGEL_API_KEY,
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -28,7 +28,8 @@ const exportsObj = {
         tradingsymbol: 'Nifty 50'
       };
 
-      const response = await axios.post(`${BASE_URL}/rest/secure/angelbroking/order/v1/getLtpData`, payload, { headers: commonHeaders(jwtToken) });
+      const publicIP = await getPublicIP();
+      const response = await axios.post(`${BASE_URL}/rest/secure/angelbroking/order/v1/getLtpData`, payload, { headers: commonHeaders(jwtToken, publicIP) });
       
       if (response.data.status === true) {
         return response.data.data.ltp;
@@ -96,7 +97,8 @@ const exportsObj = {
         expirydate: expiry
       };
 
-      const response = await axios.post(`${BASE_URL}/rest/secure/angelbroking/marketData/v1/optionGreek`, payload, { headers: commonHeaders(jwtToken) });
+      const publicIP = await getPublicIP();
+      const response = await axios.post(`${BASE_URL}/rest/secure/angelbroking/marketData/v1/optionGreek`, payload, { headers: commonHeaders(jwtToken, publicIP) });
 
       if (response.data.status === true) {
         const chain = response.data.data;
@@ -176,7 +178,8 @@ const exportsObj = {
       }
     };
 
-    const marketDataResponse = await axios.post(`${BASE_URL}/rest/secure/angelbroking/market/v1/quote/`, marketDataPayload, { headers: commonHeaders(jwtToken) });
+    const publicIP = await getPublicIP();
+    const marketDataResponse = await axios.post(`${BASE_URL}/rest/secure/angelbroking/market/v1/quote/`, marketDataPayload, { headers: commonHeaders(jwtToken, publicIP) });
 
     if (marketDataResponse.data.status === true && marketDataResponse.data.data.fetched) {
       marketDataResponse.data.data.fetched.forEach(item => {

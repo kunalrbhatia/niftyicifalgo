@@ -1,6 +1,7 @@
 const axios = require('axios');
 const { generateSync, createGuardrails } = require('otplib');
 const logger = require('../utils/logger');
+const { getPublicIP } = require('../utils/helpers');
 require('dotenv').config();
 
 /**
@@ -25,13 +26,15 @@ async function login() {
       totp: token
     };
 
+    const publicIP = await getPublicIP();
+
     const headers = {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
       'X-UserType': 'USER',
       'X-SourceID': 'WEB',
       'X-ClientLocalIP': '127.0.0.1',
-      'X-ClientPublicIP': process.env.ANGEL_PUBLIC_IP || '103.160.108.203',
+      'X-ClientPublicIP': publicIP,
       'X-MACAddress': '02:00:00:00:00:00', // Use your server's MAC address
       'X-PrivateKey': process.env.ANGEL_API_KEY
     };

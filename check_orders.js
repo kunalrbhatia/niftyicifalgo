@@ -1,6 +1,7 @@
 const { login } = require('./modules/auth');
 const axios = require('axios');
 const logger = require('./utils/logger');
+const { getPublicIP } = require('./utils/helpers');
 require('dotenv').config();
 
 async function checkOrders() {
@@ -9,6 +10,8 @@ async function checkOrders() {
     const session = await login();
     const { jwtToken } = session;
 
+    const publicIP = await getPublicIP();
+
     const headers = {
       'Authorization': `Bearer ${jwtToken}`,
       'Content-Type': 'application/json',
@@ -16,7 +19,7 @@ async function checkOrders() {
       'X-UserType': 'USER',
       'X-SourceID': 'WEB',
       'X-ClientLocalIP': '127.0.0.1',
-      'X-ClientPublicIP': process.env.ANGEL_PUBLIC_IP || '103.160.108.203',
+      'X-ClientPublicIP': publicIP,
       'X-MACAddress': '02:00:00:00:00:00',
       'X-PrivateKey': process.env.ANGEL_API_KEY,
       'User-Agent': 'Mozilla/5.0'
