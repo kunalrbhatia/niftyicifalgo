@@ -10,6 +10,7 @@ An automated, positional trading strategy for Nifty 50 monthly options using Ang
   - Initiated only if today's date is **on or before the 15th** of the month.
   - Automatically detects if positions for the current monthly expiry already exist.
   - Sells **25Δ (Delta)** Call and Put; Buys **17Δ** Call and Put for protection.
+  - **100-Point Strike Intervals:** All selected strikes are strictly multiples of 100. If the closest delta is a 50-multiple, the algo pushes further OTM (Puts round down, Calls round up).
 - **Adjustment Logic (The "Wall" Rule):**
   - Performs a daily "Wall Check" at startup.
   - If Spot price $\le$ Short Put strike OR Spot price $\ge$ Short Call strike:
@@ -23,6 +24,7 @@ An automated, positional trading strategy for Nifty 50 monthly options using Ang
 
 ## 🛠️ Key Features
 
+- **Dynamic IP Detection:** Automatically detects your server's public IPv4 address for every request to Angel One's SmartAPI, preventing "Unregistered IP" errors without manual configuration.
 - **State Reconstruction:** No database required. Every morning, the algo queries your Angel One account, identifies open Nifty legs, and reconstructs its internal state (strikes, tokens, adjustment status).
 - **Auto-Scrip Management:** Downloads and filters the latest Angel One Scrip Master daily at 09:00 AM to ensure symbol tokens and expiry dates are always accurate.
 - **Telegram Integration:** Sends a detailed daily summary including scrip updates, entry details, wall check results, and current month's realized P&L.
@@ -60,7 +62,7 @@ An automated, positional trading strategy for Nifty 50 monthly options using Ang
    ANGEL_CLIENT_ID=your_client_id
    ANGEL_PASSWORD=your_password
    ANGEL_TOTP_SECRET=your_totp_secret
-   ANGEL_PUBLIC_IP=your_ip
+   ANGEL_PUBLIC_IP=your_ip (Optional: Auto-detected by default)
 
    TELEGRAM_BOT_TOKEN=your_bot_token
    TELEGRAM_CHAT_ID=your_chat_id
