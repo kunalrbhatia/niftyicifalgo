@@ -73,7 +73,7 @@ function findStrikes(optionChain) {
       buyCall:  { strike: buyCall.strikePrice, tradingSymbol: buyCall.tradingSymbol, token: buyCall.symbolToken, delta: buyCall.delta, ltp: buyCall.ltp }
     };
   } catch (error) {
-    logger.error('Error finding strikes:', error.message);
+    logger.error(`Error finding strikes: ${error.message}`, error);
     throw error;
   }
 }

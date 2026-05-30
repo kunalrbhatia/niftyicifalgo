@@ -25,7 +25,8 @@ async function sendTelegramMessage(message) {
     });
     logger.info('Telegram message sent successfully.');
   } catch (error) {
-    logger.error('Error sending Telegram message:', error.response?.data || error.message);
+    const errorDetails = error.response?.data ? JSON.stringify(error.response.data) : error.message;
+    logger.error(`Error sending Telegram message: ${errorDetails}`, error);
   }
 }
 

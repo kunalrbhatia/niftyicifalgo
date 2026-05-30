@@ -1,6 +1,5 @@
-const axios = require('axios');
 const logger = require('../utils/logger');
-const { getPublicIP } = require('../utils/helpers');
+const { getPublicIP, getPositions } = require('../utils/helpers');
 require('dotenv').config();
 
 const BASE_URL = 'https://apiconnect.angelone.in';
@@ -39,45 +38,30 @@ function initPosition(strikes, orderIds) {
  */
 async function hasOpenPositions(jwtToken) {
   try {
-    const publicIP = await getPublicIP();
-    const headers = {
-      'Authorization': `Bearer ${jwtToken}`,
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      'X-UserType': 'USER',
-      'X-SourceID': 'WEB',
-      'X-ClientLocalIP': '127.0.0.1',
-      'X-ClientPublicIP': publicIP,
-      'X-MACAddress': '02:00:00:00:00:00',
-      'X-PrivateKey': process.env.ANGEL_API_KEY,
-      'User-Agent': 'Mozilla/5.0'
-    };
-
-    const response = await axios.get(`${BASE_URL}/rest/secure/angelbroking/order/v1/getPosition`, { headers });
-
-    if (response.data.status === true) {
-      const positions = response.data.data;
+    const data = await getPositions(jwtToken);
+    
+    if (data.status === true) {
+      const positions = data.data;
       if (!positions) return false;
-
+ 
       const moment = require('moment-timezone');
       const { getExpiryDate } = require('./optionChain');
       const expiryStr = await getExpiryDate(); // e.g. 28APR2026
       const expiryTag = moment(expiryStr, 'DDMMMYYYY').format('DDMMMYY').toUpperCase(); // e.g. 28APR26
-
+ 
       // Accurate check: Any NIFTY position with the current monthly expiry tag in trading symbol
       const relevantPositions = positions.filter(p => 
         p.tradingsymbol.startsWith('NIFTY') && 
         p.tradingsymbol.includes(expiryTag) && 
         parseInt(p.netqty) !== 0
       );
-
+ 
       return relevantPositions.length > 0;
     }
     return false;
   } catch (error) {
-    logger.error('Error checking open positions:', error.message);
-    return false; // Safest to assume false and let entry logic handle it, or maybe true to avoid double entry?
-    // Actually, if API fails, we probably shouldn't place new orders.
+    logger.error(`Error checking open positions: ${error.message}`, error);
+    return false;
   }
 }
 
@@ -88,40 +72,26 @@ async function hasOpenPositions(jwtToken) {
  */
 async function reconstructState(jwtToken) {
   try {
-    const publicIP = await getPublicIP();
-    const headers = {
-      'Authorization': `Bearer ${jwtToken}`,
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      'X-UserType': 'USER',
-      'X-SourceID': 'WEB',
-      'X-ClientLocalIP': '127.0.0.1',
-      'X-ClientPublicIP': publicIP,
-      'X-MACAddress': '02:00:00:00:00:00',
-      'X-PrivateKey': process.env.ANGEL_API_KEY,
-      'User-Agent': 'Mozilla/5.0'
-    };
-
-    const response = await axios.get(`${BASE_URL}/rest/secure/angelbroking/order/v1/getPosition`, { headers });
-
-    if (response.data.status === true && response.data.data) {
-      const positions = response.data.data;
+    const data = await getPositions(jwtToken);
+ 
+    if (data.status === true && data.data) {
+      const positions = data.data;
       const moment = require('moment-timezone');
       const optionChain = require('./optionChain');
       const expiryStr = await optionChain.getExpiryDate();
       const expiryTag = moment(expiryStr, 'DDMMMYYYY').format('DDMMMYY').toUpperCase();
-
+ 
       const relevant = positions.filter(p => 
         p.tradingsymbol.startsWith('NIFTY') && 
         p.tradingsymbol.includes(expiryTag) && 
         parseInt(p.netqty) !== 0
       );
-
+ 
       if (relevant.length === 0) {
         logger.warn(`No relevant positions found for expiry ${expiryTag}`);
         return false;
       }
-
+ 
       logger.info(`Reconstructing state from ${relevant.length} live positions for ${expiryTag}...`);
       
       // Reset state legs
@@ -131,7 +101,7 @@ async function reconstructState(jwtToken) {
         sellCall: null,
         buyCall:  null,
       };
-
+ 
       relevant.forEach(p => {
         const qty = parseInt(p.netqty);
         const symbol = p.tradingsymbol;
@@ -145,7 +115,7 @@ async function reconstructState(jwtToken) {
         const extractedStrike = strikeMatch ? parseInt(strikeMatch[1]) : 0;
         
         logger.debug(`Extracted strike ${extractedStrike} from ${symbol}`);
-
+ 
         const legData = {
           tradingSymbol: symbol,
           token: p.symboltoken,
@@ -154,7 +124,7 @@ async function reconstructState(jwtToken) {
           transactionType: qty > 0 ? 'BUY' : 'SELL',
           status: 'OPEN'
         };
-
+ 
         if (isPut) {
           if (qty < 0) {
             // If we have two sell puts, the one further away might be the original wall
@@ -173,7 +143,7 @@ async function reconstructState(jwtToken) {
           }
         }
       });
-
+ 
       // Detect if adjusted
       if (state.legs.newAtmCall) {
         state.adjusted = true;
@@ -182,9 +152,9 @@ async function reconstructState(jwtToken) {
         state.adjusted = true;
         state.wallHitSide = 'CALL'; // CALL wall was hit, PUT side adjusted
       }
-
+ 
       state.entryTime = new Date(); // Approximate
-      logger.info('State reconstructed successfully:', JSON.stringify(state.legs, null, 2));
+      logger.info('State reconstructed successfully: ' + JSON.stringify(state.legs, null, 2));
       return true;
     }
     return false;

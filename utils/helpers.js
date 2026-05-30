@@ -2,6 +2,8 @@ const moment = require('moment-timezone');
 const axios = require('axios');
 
 let cachedIP = null;
+let cachedPositions = null;
+let cachedPositionsTime = 0;
 
 /**
  * Get the current public IPv4 address.
@@ -9,6 +11,9 @@ let cachedIP = null;
  * @returns {Promise<string>}
  */
 async function getPublicIP() {
+  if (process.env.ANGEL_PUBLIC_IP) {
+    return process.env.ANGEL_PUBLIC_IP;
+  }
   if (cachedIP) return cachedIP;
   
   try {
@@ -17,9 +22,51 @@ async function getPublicIP() {
     return cachedIP;
   } catch (error) {
     // Fallback to a default if fetch fails
-    return process.env.ANGEL_PUBLIC_IP || '103.160.108.203';
+    return '103.160.108.203';
   }
 }
+
+/**
+ * Fetch positions from Angel One with a short-lived cache (10 seconds)
+ * to avoid duplicate rate-limit blocks within a single execution.
+ * @param {string} jwtToken
+ */
+async function getPositions(jwtToken) {
+  const now = Date.now();
+  if (cachedPositions && (now - cachedPositionsTime < 10000)) {
+    return cachedPositions;
+  }
+
+  const publicIP = await getPublicIP();
+  const headers = {
+    'Authorization': `Bearer ${jwtToken}`,
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+    'X-UserType': 'USER',
+    'X-SourceID': 'WEB',
+    'X-ClientLocalIP': '127.0.0.1',
+    'X-ClientPublicIP': publicIP,
+    'X-MACAddress': '02:00:00:00:00:00',
+    'X-PrivateKey': process.env.ANGEL_API_KEY,
+    'User-Agent': 'Mozilla/5.0'
+  };
+
+  const response = await axios.get('https://apiconnect.angelone.in/rest/secure/angelbroking/order/v1/getPosition', { headers });
+  if (response.data && response.data.status === true) {
+    cachedPositions = response.data;
+    cachedPositionsTime = now;
+  }
+  return response.data;
+}
+
+/**
+ * Clear positions cache.
+ */
+function clearPositionsCache() {
+  cachedPositions = null;
+  cachedPositionsTime = 0;
+}
+
 
 /**
  * Check if current IST time >= target time string "HH:MM"
@@ -102,5 +149,7 @@ module.exports = {
   getCurrentISTTime,
   roundToNearestStrike,
   sleep,
-  calculateDelta
+  calculateDelta,
+  getPositions,
+  clearPositionsCache
 };
