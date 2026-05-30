@@ -55,7 +55,7 @@ async function syncDailyRealizedPnL(jwtToken) {
       // Calculate total realized P&L for Nifty options today
       const dailyRealized = positions
         .filter(p => p.tradingsymbol.startsWith('NIFTY'))
-        .reduce((sum, p) => sum + parseFloat(p.realisedpnl || 0), 0);
+        .reduce((sum, p) => sum + parseFloat(p.realised || 0), 0);
  
       if (dailyRealized !== 0) {
         logger.info(`Daily Sync: Found ₹${dailyRealized} realized P&L today. Updating history...`);

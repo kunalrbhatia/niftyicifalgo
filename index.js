@@ -6,7 +6,7 @@ const { placeIronCondorEntry } = require('./modules/orderManager');
 const { initPosition, hasOpenPositions, reconstructState } = require('./modules/positionTracker');
 const { performSingleWallCheck } = require('./modules/wallMonitor');
 const { runFinalExitCheck } = require('./modules/exitManager');
-const { isTimeReached, sleep } = require('./utils/helpers');
+const { isTimeReached, sleep, getPositions } = require('./utils/helpers');
 const { sendTelegramMessage } = require('./utils/notifier');
 const pnlTracker = require('./utils/pnlTracker');
 const logger = require('./utils/logger');
@@ -143,6 +143,41 @@ async function main() {
     // STEP 7: Daily P&L Sync (Capture realized P&L from positions)
     logger.info('Syncing daily realized P&L...');
     await pnlTracker.syncDailyRealizedPnL(jwtToken);
+ 
+    // Fetch and format active monthly Nifty positions P&L for Telegram
+    try {
+      const data = await getPositions(jwtToken);
+      if (data.status === true && data.data) {
+        const positions = data.data;
+        const moment = require('moment-timezone');
+        const { getExpiryDate } = require('./modules/optionChain');
+        const expiryStr = await getExpiryDate(); // e.g. 30JUN2026
+        const expiryTag = moment(expiryStr, 'DDMMMYYYY').format('DDMMMYY').toUpperCase(); // 30JUN26
+        
+        const relevant = positions.filter(p => 
+          p.tradingsymbol.startsWith('NIFTY') && 
+          p.tradingsymbol.includes(expiryTag) &&
+          parseInt(p.netqty) !== 0
+        );
+ 
+        if (relevant.length > 0) {
+          summary += '\n📊 <b>Active Monthly Nifty Positions P&L:</b>\n';
+          relevant.forEach(p => {
+            const qty = parseInt(p.netqty);
+            const side = qty > 0 ? 'BUY' : 'SELL';
+            const absQty = Math.abs(qty);
+            const realised = parseFloat(p.realised || 0);
+            const unrealised = parseFloat(p.unrealised || 0);
+            const totalLegPnL = parseFloat(p.pnl || 0);
+            
+            summary += `▫️ <b>${p.tradingsymbol}</b> (${side} x ${absQty})\n`;
+            summary += `   LTP: ${p.ltp} | Realised: ₹${realised.toFixed(2)} | Unrealised: ₹${unrealised.toFixed(2)} | P&L: ₹${totalLegPnL.toFixed(2)}\n`;
+          });
+        }
+      }
+    } catch (pnlError) {
+      logger.error('Error adding position details to Telegram summary:', pnlError);
+    }
 
     logger.info('=== Daily Algo Run Completed ===');
     const monthlyPnL = pnlTracker.getMonthlyPnL();
