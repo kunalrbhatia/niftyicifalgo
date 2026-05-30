@@ -170,8 +170,11 @@ async function main() {
             const unrealised = parseFloat(p.unrealised || 0);
             const totalLegPnL = parseFloat(p.pnl || 0);
             
-            summary += `▫️ <b>${p.tradingsymbol}</b> (${side} x ${absQty})\n`;
-            summary += `   LTP: ${p.ltp} | Realised: ₹${realised.toFixed(2)} | Unrealised: ₹${unrealised.toFixed(2)} | P&L: ₹${totalLegPnL.toFixed(2)}\n`;
+            summary += `\n▫️ <b>${p.tradingsymbol}</b> (${side} x ${absQty})\n`;
+            summary += `   📍 <b>LTP:</b> ${p.ltp}\n`;
+            summary += `   💵 <b>Realised P&L:</b> ₹${realised.toFixed(2)}\n`;
+            summary += `   📈 <b>Unrealised P&L:</b> ₹${unrealised.toFixed(2)}\n`;
+            summary += `   💰 <b>Net P&L:</b> ₹${totalLegPnL.toFixed(2)}\n`;
           });
         }
       }
