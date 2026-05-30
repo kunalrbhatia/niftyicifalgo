@@ -62,25 +62,10 @@ async function runFinalExitCheck(jwtToken) {
 
     // Fetch live P&L for record keeping
     try {
-      const { getPublicIP } = require('../utils/helpers');
-      const publicIP = await getPublicIP();
-
-      const headers = {
-        'Authorization': `Bearer ${jwtToken}`,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'X-UserType': 'USER',
-        'X-SourceID': 'WEB',
-        'X-ClientLocalIP': '127.0.0.1',
-        'X-ClientPublicIP': publicIP,
-        'X-MACAddress': '02:00:00:00:00:00',
-        'X-PrivateKey': process.env.ANGEL_API_KEY,
-        'User-Agent': 'Mozilla/5.0'
-      };
-
-      const response = await axios.get('https://apiconnect.angelone.in/rest/secure/angelbroking/order/v1/getPosition', { headers });
-      if (response.data.status === true && response.data.data) {
-        const positions = response.data.data;
+      const { getPositions } = require('../utils/helpers');
+      const data = await getPositions(jwtToken);
+      if (data.status === true && data.data) {
+        const positions = data.data;
         // Filter positions belonging to the current monthly expiry
         const moment = require('moment-timezone');
         const expiryStr = await optionChain.getExpiryDate();
@@ -101,12 +86,12 @@ async function runFinalExitCheck(jwtToken) {
         });
       }
     } catch (pnlError) {
-      logger.error('Could not fetch final P&L for record keeping:', pnlError.message);
+      logger.error(`Could not fetch final P&L for record keeping: ${pnlError.message}`, pnlError);
     }
 
     logger.info('Final ITM exit check completed.');
   } catch (error) {
-    logger.error('Error during final exit check:', error.message);
+    logger.error(`Error during final exit check: ${error.message}`, error);
   }
 }
 

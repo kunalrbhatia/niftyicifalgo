@@ -48,7 +48,7 @@ async function login() {
       throw new Error(`Login failed: ${response.data.message}`);
     }
   } catch (error) {
-    logger.error('Error during SmartAPI login:', error.message);
+    logger.error(`Error during SmartAPI login: ${error.message}`, error);
     throw error;
   }
 }

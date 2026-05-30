@@ -55,7 +55,7 @@ async function adjustCallSide(jwtToken) {
 
     logger.info(`CALL side adjusted to ATM strike ${atmCall.strikePrice}`);
   } catch (error) {
-    logger.error('Error during CALL side adjustment:', error.message);
+    logger.error(`Error during CALL side adjustment: ${error.message}`, error);
   }
 }
 
@@ -110,7 +110,7 @@ async function adjustPutSide(jwtToken) {
 
     logger.info(`PUT side adjusted to ATM strike ${atmPut.strikePrice}`);
   } catch (error) {
-    logger.error('Error during PUT side adjustment:', error.message);
+    logger.error(`Error during PUT side adjustment: ${error.message}`, error);
   }
 }
 

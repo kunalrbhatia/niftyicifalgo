@@ -120,7 +120,7 @@ const exportsObj = {
         throw new Error(`Failed to fetch option chain: ${response.data.message}`);
       }
     } catch (error) {
-      logger.error('Error fetching option chain:', error.message);
+      logger.error(`Error fetching option chain: ${error.message}`, error);
       throw error;
     }
   },

@@ -45,12 +45,14 @@ async function placeOrder(jwtToken, { tradingSymbol, token, transactionType, qua
     const response = await axios.post(`${BASE_URL}/rest/secure/angelbroking/order/v1/placeOrder`, payload, { headers });
 
     if (response.data.status === true) {
+      const { clearPositionsCache } = require('../utils/helpers');
+      clearPositionsCache();
       return response.data.data.scriptorderid || response.data.data.orderid;
     } else {
       throw new Error(`Order placement failed: ${response.data.message}`);
     }
   } catch (error) {
-    logger.error(`Error placing ${transactionType} order for ${tradingSymbol}:`, error.message);
+    logger.error(`Error placing ${transactionType} order for ${tradingSymbol}: ${error.message}`, error);
     throw error;
   }
 }
@@ -122,7 +124,7 @@ async function getOrderStatus(jwtToken, orderId) {
       throw new Error(`Failed to get order status: ${response.data.message}`);
     }
   } catch (error) {
-    logger.error(`Error getting status for order ${orderId}:`, error.message);
+    logger.error(`Error getting status for order ${orderId}: ${error.message}`, error);
     throw error;
   }
 }

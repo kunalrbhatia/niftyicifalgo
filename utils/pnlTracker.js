@@ -36,7 +36,7 @@ function savePnLRecord(record) {
     fs.writeFileSync(PNL_FILE, JSON.stringify(history, null, 2));
     logger.info(`P&L record saved to ${PNL_FILE}`);
   } catch (error) {
-    logger.error('Error saving P&L record:', error.message);
+    logger.error(`Error saving P&L record: ${error.message}`, error);
   }
 }
 
@@ -46,33 +46,17 @@ function savePnLRecord(record) {
  */
 async function syncDailyRealizedPnL(jwtToken) {
   try {
-    const { getPublicIP } = require('./helpers');
-    const publicIP = await getPublicIP();
-
-    const headers = {
-      'Authorization': `Bearer ${jwtToken}`,
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      'X-UserType': 'USER',
-      'X-SourceID': 'WEB',
-      'X-ClientLocalIP': '127.0.0.1',
-      'X-ClientPublicIP': publicIP,
-      'X-MACAddress': '02:00:00:00:00:00',
-      'X-PrivateKey': process.env.ANGEL_API_KEY,
-      'User-Agent': 'Mozilla/5.0'
-    };
-
-
-    const response = await axios.get('https://apiconnect.angelone.in/rest/secure/angelbroking/order/v1/getPosition', { headers });
+    const { getPositions } = require('./helpers');
+    const data = await getPositions(jwtToken);
     
-    if (response.data.status === true && response.data.data) {
-      const positions = response.data.data;
+    if (data.status === true && data.data) {
+      const positions = data.data;
       
       // Calculate total realized P&L for Nifty options today
       const dailyRealized = positions
         .filter(p => p.tradingsymbol.startsWith('NIFTY'))
         .reduce((sum, p) => sum + parseFloat(p.realisedpnl || 0), 0);
-
+ 
       if (dailyRealized !== 0) {
         logger.info(`Daily Sync: Found ₹${dailyRealized} realized P&L today. Updating history...`);
         savePnLRecord({
@@ -85,7 +69,7 @@ async function syncDailyRealizedPnL(jwtToken) {
       }
     }
   } catch (error) {
-    logger.error('Error during daily P&L sync:', error.message);
+    logger.error(`Error during daily P&L sync: ${error.message}`, error);
   }
 }
 
@@ -104,7 +88,7 @@ function getMonthlyPnL() {
       .filter(record => record.date.startsWith(currentMonth))
       .reduce((sum, record) => sum + (record.totalPnL || 0), 0);
   } catch (error) {
-    logger.error('Error calculating monthly P&L:', error.message);
+    logger.error(`Error calculating monthly P&L: ${error.message}`, error);
     return 0;
   }
 }
