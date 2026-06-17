@@ -2,14 +2,14 @@
 const { login } = require('./modules/auth');
 const { getPositions } = require('./utils/helpers');
 const { getExpiryDate } = require('./modules/optionChain');
-const { sendTelegramMessage } = require('./utils/notifier');
+const { notify } = require('./utils/notifier');
 const logger = require('./utils/logger');
 const moment = require('moment-timezone');
 require('dotenv').config();
 
 async function run() {
   try {
-    logger.info('Starting manual Telegram P&L message test...');
+    logger.info('Starting manual notification test (Telegram/Slack)...');
     const session = await login();
     const { jwtToken } = session;
     
@@ -52,14 +52,14 @@ async function run() {
     
     summary += '\n✨ <b>Algo run completed successfully.</b>';
     
-    console.log('--- Proposed Telegram Message ---');
+    console.log('--- Proposed Notification Message ---');
     console.log(summary);
     
-    logger.info('Sending test Telegram message...');
-    await sendTelegramMessage(summary);
-    logger.info('Telegram test completed successfully!');
+    logger.info('Sending test notification...');
+    await notify(summary);
+    logger.info('Notification test completed!');
   } catch (error) {
-    logger.error('Error in Telegram P&L test:', error);
+    logger.error('Error in notification test:', error);
   }
 }
 

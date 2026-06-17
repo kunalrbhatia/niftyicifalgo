@@ -1,18 +1,16 @@
 const axios = require('axios');
 const logger = require('./logger');
-require('dotenv').config();
+const config = require('../config');
 
 /**
  * Send a message via Telegram Bot API
- * Requires TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env
  * @param {string} message 
  */
 async function sendTelegramMessage(message) {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
+  const { token, chatId } = config.notifications.telegram;
 
   if (!token || !chatId) {
-    logger.warn('Telegram credentials not found in .env. Skipping message.');
+    logger.warn('Telegram credentials not found in config. Skipping message.');
     return;
   }
 
@@ -30,6 +28,46 @@ async function sendTelegramMessage(message) {
   }
 }
 
+/**
+ * Send a message via Slack Webhook
+ * @param {string} message 
+ */
+async function sendSlackMessage(message) {
+  const { webhookUrl } = config.notifications.slack;
+
+  if (!webhookUrl) {
+    logger.warn('Slack Webhook URL not found in config. Skipping message.');
+    return;
+  }
+
+  try {
+    await axios.post(webhookUrl, {
+      text: message
+    });
+    logger.info('Slack message sent successfully.');
+  } catch (error) {
+    const errorDetails = error.response?.data ? JSON.stringify(error.response.data) : error.message;
+    logger.error(`Error sending Slack message: ${errorDetails}`, error);
+  }
+}
+
+/**
+ * Unified notification function
+ * Picks channel based on config priority (Telegram > Slack)
+ * @param {string} message 
+ */
+async function notify(message) {
+  if (config.notifications.telegram.enabled) {
+    await sendTelegramMessage(message);
+  } else if (config.notifications.slack.enabled) {
+    await sendSlackMessage(message);
+  } else {
+    logger.warn('No notification channel enabled in config.');
+  }
+}
+
 module.exports = {
-  sendTelegramMessage
+  sendTelegramMessage,
+  sendSlackMessage,
+  notify
 };
