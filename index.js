@@ -7,7 +7,7 @@ const { initPosition, hasOpenPositions, reconstructState } = require('./modules/
 const { performSingleWallCheck } = require('./modules/wallMonitor');
 const { runFinalExitCheck } = require('./modules/exitManager');
 const { isTimeReached, sleep, getPositions } = require('./utils/helpers');
-const { sendTelegramMessage } = require('./utils/notifier');
+const { notify } = require('./utils/notifier');
 const pnlTracker = require('./utils/pnlTracker');
 const logger = require('./utils/logger');
 require('dotenv').config();
@@ -58,7 +58,7 @@ async function main() {
     if (!isTodayTrading) {
       logger.info('Today is NOT a trading day. Algo exits.');
       summary += '⏸ Today is a holiday. No action taken.';
-      await sendTelegramMessage(summary);
+      await notify(summary);
       process.exit(0);
     }
     logger.info('Today IS a valid trading day. Proceeding...');
@@ -186,12 +186,12 @@ async function main() {
     const monthlyPnL = pnlTracker.getMonthlyPnL();
     summary += `\n💰 <b>Current Month P&L:</b> ${monthlyPnL.toFixed(2)}`;
     summary += '\n\n✨ <b>Algo run completed successfully.</b>';
-    await sendTelegramMessage(summary);
+    await notify(summary);
     process.exit(0);
   } catch (error) {
     logger.error('Fatal error in main:', error);
     summary += `\n🚨 <b>FATAL ERROR:</b> ${error.message}`;
-    await sendTelegramMessage(summary);
+    await notify(summary);
     process.exit(1);
   }
 }

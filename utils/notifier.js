@@ -1,18 +1,31 @@
 const axios = require('axios');
 const logger = require('./logger');
-require('dotenv').config();
+const config = require('../config');
+
+/**
+ * Helper to convert simple HTML (<b>, <i>, <code>) to Slack mrkdwn
+ * @param {string} html 
+ * @returns {string}
+ */
+function htmlToMrkdwn(html) {
+  if (!html) return '';
+  return html
+    .replace(/<b>(.*?)<\/b>/g, '*$1*')
+    .replace(/<strong>(.*?)<\/strong>/g, '*$1*')
+    .replace(/<i>(.*?)<\/i>/g, '_$1_')
+    .replace(/<em>(.*?)<\/em>/g, '_$1_')
+    .replace(/<code>(.*?)<\/code>/g, '`$1`');
+}
 
 /**
  * Send a message via Telegram Bot API
- * Requires TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env
  * @param {string} message 
  */
-async function sendTelegramMessage(message) {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
+async function sendTelegram(message) {
+  const { token, chatId } = config.notifications.telegram;
 
   if (!token || !chatId) {
-    logger.warn('Telegram credentials not found in .env. Skipping message.');
+    logger.warn('Telegram credentials not found in config. Skipping message.');
     return;
   }
 
@@ -30,6 +43,54 @@ async function sendTelegramMessage(message) {
   }
 }
 
+/**
+ * Send a message via Slack Webhook
+ * @param {string} message 
+ */
+async function sendSlack(message) {
+  const { webhookUrl } = config.notifications.slack;
+
+  if (!webhookUrl) {
+    logger.warn('Slack Webhook URL not found in config. Skipping message.');
+    return;
+  }
+
+  const mrkdwnMessage = htmlToMrkdwn(message);
+
+  try {
+    await axios.post(webhookUrl, {
+      text: mrkdwnMessage
+    });
+    logger.info('Slack message sent successfully.');
+  } catch (error) {
+    const errorDetails = error.response?.data ? JSON.stringify(error.response.data) : error.message;
+    logger.error(`Error sending Slack message: ${errorDetails}`, error);
+  }
+}
+
+/**
+ * Unified notification function
+ * Picks channel based on config priority (Telegram > Slack)
+ * @param {string} message 
+ */
+async function notify(message) {
+  if (config.notifications.telegram.enabled) {
+    return await sendTelegram(message);
+  }
+  
+  if (config.notifications.slack.enabled) {
+    return await sendSlack(message);
+  }
+
+  logger.warn('No notification channel enabled in config.');
+}
+
 module.exports = {
-  sendTelegramMessage
+  sendTelegram,
+  sendSlack,
+  notify,
+  htmlToMrkdwn,
+  // Aliases for backward compatibility if any
+  sendTelegramMessage: sendTelegram,
+  sendSlackMessage: sendSlack
 };
