@@ -35,7 +35,7 @@ module.exports = {
     },
     slack: {
       // Priority Logic: Use Slack only if Telegram is disabled
-      enabled: process.env.USE_TELEGRAM !== 'true' && process.env.USE_SLACK === 'true',
+      enabled: process.env.USE_TELEGRAM === 'true' ? false : process.env.USE_SLACK === 'true',
       webhookUrl: process.env.SLACK_WEBHOOK_URL
     }
   }

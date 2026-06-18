@@ -3,10 +3,25 @@ const logger = require('./logger');
 const config = require('../config');
 
 /**
+ * Helper to convert simple HTML (<b>, <i>, <code>) to Slack mrkdwn
+ * @param {string} html 
+ * @returns {string}
+ */
+function htmlToMrkdwn(html) {
+  if (!html) return '';
+  return html
+    .replace(/<b>(.*?)<\/b>/g, '*$1*')
+    .replace(/<strong>(.*?)<\/strong>/g, '*$1*')
+    .replace(/<i>(.*?)<\/i>/g, '_$1_')
+    .replace(/<em>(.*?)<\/em>/g, '_$1_')
+    .replace(/<code>(.*?)<\/code>/g, '`$1`');
+}
+
+/**
  * Send a message via Telegram Bot API
  * @param {string} message 
  */
-async function sendTelegramMessage(message) {
+async function sendTelegram(message) {
   const { token, chatId } = config.notifications.telegram;
 
   if (!token || !chatId) {
@@ -32,7 +47,7 @@ async function sendTelegramMessage(message) {
  * Send a message via Slack Webhook
  * @param {string} message 
  */
-async function sendSlackMessage(message) {
+async function sendSlack(message) {
   const { webhookUrl } = config.notifications.slack;
 
   if (!webhookUrl) {
@@ -40,9 +55,11 @@ async function sendSlackMessage(message) {
     return;
   }
 
+  const mrkdwnMessage = htmlToMrkdwn(message);
+
   try {
     await axios.post(webhookUrl, {
-      text: message
+      text: mrkdwnMessage
     });
     logger.info('Slack message sent successfully.');
   } catch (error) {
@@ -58,16 +75,22 @@ async function sendSlackMessage(message) {
  */
 async function notify(message) {
   if (config.notifications.telegram.enabled) {
-    await sendTelegramMessage(message);
-  } else if (config.notifications.slack.enabled) {
-    await sendSlackMessage(message);
-  } else {
-    logger.warn('No notification channel enabled in config.');
+    return await sendTelegram(message);
   }
+  
+  if (config.notifications.slack.enabled) {
+    return await sendSlack(message);
+  }
+
+  logger.warn('No notification channel enabled in config.');
 }
 
 module.exports = {
-  sendTelegramMessage,
-  sendSlackMessage,
-  notify
+  sendTelegram,
+  sendSlack,
+  notify,
+  htmlToMrkdwn,
+  // Aliases for backward compatibility if any
+  sendTelegramMessage: sendTelegram,
+  sendSlackMessage: sendSlack
 };
