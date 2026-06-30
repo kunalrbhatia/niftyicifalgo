@@ -100,27 +100,43 @@ async function main() {
       const today = moment().tz('Asia/Kolkata');
       const dayOfMonth = today.date();
 
+      let targetExpiry = null;
+      let shouldTrade = false;
+      let label = '';
+
       if (dayOfMonth <= 15) {
-        logger.info(`Today is day ${dayOfMonth} of the month (<= 15). Initiating new Iron Condor...`);
+        shouldTrade = true;
+        const { getExpiryDate } = require('./modules/optionChain');
+        targetExpiry = await getExpiryDate(0);
+        label = `Current Month Expiry (${targetExpiry})`;
+      } else if (dayOfMonth > 20) {
+        shouldTrade = true;
+        const { getExpiryDate } = require('./modules/optionChain');
+        targetExpiry = await getExpiryDate(1);
+        label = `Next Month Expiry (${targetExpiry})`;
+      }
+
+      if (shouldTrade) {
+        logger.info(`Today is day ${dayOfMonth} of the month. Initiating new Iron Condor for ${label}...`);
         
         // Fetch option chain + find strikes
-        logger.info('Fetching option chain...');
-        const chain = await getOptionChain(jwtToken);
+        logger.info(`Fetching option chain for expiry ${targetExpiry}...`);
+        const chain = await getOptionChain(jwtToken, targetExpiry);
         const initialStrikes = findStrikes(chain);
         
         logger.info('Identifying tokens and LTP for strikes...');
-        const strikes = await enrichStrikes(jwtToken, initialStrikes);
+        const strikes = await enrichStrikes(jwtToken, initialStrikes, targetExpiry);
         logger.info('Strikes identified and enriched:', strikes);
 
         // Place Iron Condor entry (4 legs)
         logger.info('Placing Iron Condor orders...');
         const orderIds = await placeIronCondorEntry(jwtToken, strikes);
-        initPosition(strikes, orderIds);
-        logger.info('New positional Iron Condor initiated.');
-        summary += '🆕 New Iron Condor entry placed.\n';
+        initPosition(strikes, orderIds, targetExpiry);
+        logger.info(`New positional Iron Condor initiated for ${targetExpiry}.`);
+        summary += `🆕 New Iron Condor entry placed for ${targetExpiry}.\n`;
       } else {
-        logger.info(`Today is day ${dayOfMonth} of the month (> 15). Skipping new entry.`);
-        summary += '⌛ No active positions. Skipping entry (> day 15).\n';
+        logger.info(`Today is day ${dayOfMonth} of the month. Skipping new entry.`);
+        summary += `⌛ No active positions. Skipping entry (day ${dayOfMonth}).\n`;
       }
     }
 
@@ -151,12 +167,14 @@ async function main() {
         const positions = data.data;
         const moment = require('moment-timezone');
         const { getExpiryDate } = require('./modules/optionChain');
-        const expiryStr = await getExpiryDate(); // e.g. 30JUN2026
-        const expiryTag = moment(expiryStr, 'DDMMMYYYY').format('DDMMMYY').toUpperCase(); // 30JUN26
+        const expiryStrCurr = await getExpiryDate(0);
+        const expiryTagCurr = moment(expiryStrCurr, 'DDMMMYYYY').format('DDMMMYY').toUpperCase();
+        const expiryStrNext = await getExpiryDate(1);
+        const expiryTagNext = moment(expiryStrNext, 'DDMMMYYYY').format('DDMMMYY').toUpperCase();
         
         const relevant = positions.filter(p => 
           p.tradingsymbol.startsWith('NIFTY') && 
-          p.tradingsymbol.includes(expiryTag) &&
+          (p.tradingsymbol.includes(expiryTagCurr) || p.tradingsymbol.includes(expiryTagNext)) &&
           parseInt(p.netqty) !== 0
         );
  
