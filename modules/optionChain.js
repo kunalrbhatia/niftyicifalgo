@@ -43,8 +43,9 @@ const exportsObj = {
     }
   },
 
-  getExpiryDate: async function() {
+  getExpiryDate: async function(offsetMonths = 0) {
     const today = moment().tz('Asia/Kolkata');
+    const referenceDate = today.clone().add(offsetMonths, 'months');
     const todayStr = today.format('YYYY-MM-DD');
     
     const nseHolidays2026 = [
@@ -59,7 +60,7 @@ const exportsObj = {
       return !(day === 0 || day === 6);
     };
 
-    let lastDayOfMonth = today.clone().endOf('month');
+    let lastDayOfMonth = referenceDate.clone().endOf('month');
     let lastTuesday = lastDayOfMonth.clone();
     
     // Find the last Tuesday (2 = Tuesday)
@@ -72,8 +73,8 @@ const exportsObj = {
       lastTuesday.subtract(1, 'day');
     }
     
-    // If today is past that expiryDate, find next month's expiry
-    if (today.isAfter(lastTuesday, 'day')) {
+    // If offsetMonths is 0 and today is past that expiryDate, find next month's expiry
+    if (offsetMonths === 0 && today.isAfter(lastTuesday, 'day')) {
         let nextMonth = today.clone().add(1, 'month').endOf('month');
         lastTuesday = nextMonth.clone();
         while (lastTuesday.day() !== 2) {
@@ -87,10 +88,10 @@ const exportsObj = {
     return lastTuesday.format('DDMMMYYYY').toUpperCase();
   },
 
-  getOptionChain: async function(jwtToken) {
+  getOptionChain: async function(jwtToken, targetExpiry = null) {
     try {
       const spotPrice = await exportsObj.getNiftySpotPrice(jwtToken);
-      const expiry = await exportsObj.getExpiryDate();
+      const expiry = targetExpiry || await exportsObj.getExpiryDate();
 
       const payload = {
         name: 'NIFTY',
@@ -125,7 +126,7 @@ const exportsObj = {
     }
   },
 
-  enrichStrikes: async function(jwtToken, strikes) {
+  enrichStrikes: async function(jwtToken, strikes, targetExpiry = null) {
     const fs = require('fs');
     const path = require('path');
     const masterPath = path.join(__dirname, '../scrip_master.json');
@@ -135,7 +136,7 @@ const exportsObj = {
     }
 
     const master = JSON.parse(fs.readFileSync(masterPath, 'utf8'));
-    const expiryDate = await exportsObj.getExpiryDate();
+    const expiryDate = targetExpiry || await exportsObj.getExpiryDate();
     logger.info(`Enriching strikes for expiry: ${expiryDate}`);
 
     const keys = ['sellPut', 'buyPut', 'sellCall', 'buyCall'];
@@ -159,7 +160,8 @@ const exportsObj = {
           tradingSymbol: match.symbol,
           token: match.token,
           delta: leg.delta,
-          ltp: 0 // Will fill later
+          ltp: 0, // Will fill later
+          expiry: expiryDate
         };
       } else {
         throw new Error(`Failed to find security info for ${strike} ${type} on ${expiryDate} in master file.`);

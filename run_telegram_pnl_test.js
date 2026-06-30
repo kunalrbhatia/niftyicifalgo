@@ -20,12 +20,14 @@ async function run() {
     const data = await getPositions(jwtToken);
     if (data.status === true && data.data) {
       const positions = data.data;
-      const expiryStr = await getExpiryDate(); // e.g. 30JUN2026
-      const expiryTag = moment(expiryStr, 'DDMMMYYYY').format('DDMMMYY').toUpperCase(); // 30JUN26
+      const expiryStrCurr = await getExpiryDate(0);
+      const expiryTagCurr = moment(expiryStrCurr, 'DDMMMYYYY').format('DDMMMYY').toUpperCase();
+      const expiryStrNext = await getExpiryDate(1);
+      const expiryTagNext = moment(expiryStrNext, 'DDMMMYYYY').format('DDMMMYY').toUpperCase();
       
       const relevant = positions.filter(p => 
         p.tradingsymbol.startsWith('NIFTY') && 
-        p.tradingsymbol.includes(expiryTag) &&
+        (p.tradingsymbol.includes(expiryTagCurr) || p.tradingsymbol.includes(expiryTagNext)) &&
         parseInt(p.netqty) !== 0
       );
 
