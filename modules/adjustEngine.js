@@ -18,7 +18,7 @@ async function adjustCallSide(jwtToken) {
     logger.info('PUT wall hit. Adjusting CALL side to ATM...');
     
     const spotPrice = await optionChain.getNiftySpotPrice(jwtToken);
-    const chain = await optionChain.getOptionChain(jwtToken);
+    const chain = await optionChain.getOptionChain(jwtToken, state.expiryDate);
     
     // Find ATM CALL strike (strictly 100-point intervals)
     const atmCall = chain
@@ -73,7 +73,7 @@ async function adjustPutSide(jwtToken) {
     logger.info('CALL wall hit. Adjusting PUT side to ATM...');
 
     const spotPrice = await optionChain.getNiftySpotPrice(jwtToken);
-    const chain = await optionChain.getOptionChain(jwtToken);
+    const chain = await optionChain.getOptionChain(jwtToken, state.expiryDate);
 
     // Find ATM PUT strike (strictly 100-point intervals)
     const atmPut = chain

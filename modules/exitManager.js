@@ -12,10 +12,19 @@ require('dotenv').config();
  */
 async function runFinalExitCheck(jwtToken) {
   try {
-    const spotPrice = await optionChain.getNiftySpotPrice(jwtToken);
     const state = getPosition();
+    const moment = require('moment-timezone');
+    const today = moment().tz('Asia/Kolkata');
+    const todayStr = today.format('DDMMMYYYY').toUpperCase();
+
+    if (state.expiryDate && state.expiryDate !== todayStr) {
+      logger.info(`Today (${todayStr}) is NOT the expiry date of our positions (${state.expiryDate}). Skipping final exit check.`);
+      return;
+    }
+
     const config = require('../config');
     const quantity = config.lots * config.lotSize;
+    const spotPrice = await optionChain.getNiftySpotPrice(jwtToken);
 
     logger.info(`Final Exit Check: Nifty Spot = ${spotPrice}`);
 

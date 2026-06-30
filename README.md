@@ -7,8 +7,10 @@ An automated, positional trading strategy for Nifty 50 monthly options using Ang
 - **Instrument:** NIFTY 50 Monthly Options.
 - **Product Type:** `CARRYFORWARD` (NRML) — positions are held across days.
 - **Entry Logic:** 
-  - Initiated only if today's date is **on or before the 15th** of the month.
-  - Automatically detects if positions for the current monthly expiry already exist.
+  - If today's date is **on or before the 15th** of the month, a trade is initiated for the **current** month's monthly expiry.
+  - If today's date is **after the 20th** of the month, a trade is initiated for the **next** month's monthly expiry.
+  - If today's date is between the 16th and 20th, no new entries are taken.
+  - Automatically detects if positions for the target monthly expiry already exist.
   - Sells **25Δ (Delta)** Call and Put; Buys **17Δ** Call and Put for protection.
   - **100-Point Strike Intervals:** All selected strikes are strictly multiples of 100. If the closest delta is a 50-multiple, the algo pushes further OTM (Puts round down, Calls round up).
 - **Adjustment Logic (The "Wall" Rule):**

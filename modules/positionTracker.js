@@ -22,17 +22,19 @@ let state = {
  * Initialize the position state.
  * @param {Object} strikes 
  * @param {Object} orderIds 
+ * @param {string} expiryDate
  */
-function initPosition(strikes, orderIds) {
+function initPosition(strikes, orderIds, expiryDate) {
   state.entryTime = new Date();
-  state.legs.sellPut = { ...strikes.sellPut, transactionType: 'SELL', orderId: orderIds.sellPut, status: 'OPEN' };
-  state.legs.buyPut = { ...strikes.buyPut, transactionType: 'BUY', orderId: orderIds.buyPut, status: 'OPEN' };
-  state.legs.sellCall = { ...strikes.sellCall, transactionType: 'SELL', orderId: orderIds.sellCall, status: 'OPEN' };
-  state.legs.buyCall = { ...strikes.buyCall, transactionType: 'BUY', orderId: orderIds.buyCall, status: 'OPEN' };
+  state.expiryDate = expiryDate;
+  state.legs.sellPut = { ...strikes.sellPut, transactionType: 'SELL', orderId: orderIds.sellPut, status: 'OPEN', expiry: expiryDate };
+  state.legs.buyPut = { ...strikes.buyPut, transactionType: 'BUY', orderId: orderIds.buyPut, status: 'OPEN', expiry: expiryDate };
+  state.legs.sellCall = { ...strikes.sellCall, transactionType: 'SELL', orderId: orderIds.sellCall, status: 'OPEN', expiry: expiryDate };
+  state.legs.buyCall = { ...strikes.buyCall, transactionType: 'BUY', orderId: orderIds.buyCall, status: 'OPEN', expiry: expiryDate };
 }
 
 /**
- * Fetch open positions from SmartAPI and check if any Nifty options for today's expiry are open.
+ * Fetch open positions from SmartAPI and check if any Nifty options for current or next monthly expiry are open.
  * @param {string} jwtToken 
  * @returns {Promise<boolean>} - true if an Iron Condor or any relevant position exists.
  */
@@ -46,13 +48,15 @@ async function hasOpenPositions(jwtToken) {
  
       const moment = require('moment-timezone');
       const { getExpiryDate } = require('./optionChain');
-      const expiryStr = await getExpiryDate(); // e.g. 28APR2026
-      const expiryTag = moment(expiryStr, 'DDMMMYYYY').format('DDMMMYY').toUpperCase(); // e.g. 28APR26
+      const expiryStrCurr = await getExpiryDate(0); // Current month
+      const expiryTagCurr = moment(expiryStrCurr, 'DDMMMYYYY').format('DDMMMYY').toUpperCase();
+      const expiryStrNext = await getExpiryDate(1); // Next month
+      const expiryTagNext = moment(expiryStrNext, 'DDMMMYYYY').format('DDMMMYY').toUpperCase();
  
-      // Accurate check: Any NIFTY position with the current monthly expiry tag in trading symbol
+      // Check if any active NIFTY position matches either current or next monthly expiry
       const relevantPositions = positions.filter(p => 
         p.tradingsymbol.startsWith('NIFTY') && 
-        p.tradingsymbol.includes(expiryTag) && 
+        (p.tradingsymbol.includes(expiryTagCurr) || p.tradingsymbol.includes(expiryTagNext)) && 
         parseInt(p.netqty) !== 0
       );
  
@@ -78,17 +82,35 @@ async function reconstructState(jwtToken) {
       const positions = data.data;
       const moment = require('moment-timezone');
       const optionChain = require('./optionChain');
-      const expiryStr = await optionChain.getExpiryDate();
-      const expiryTag = moment(expiryStr, 'DDMMMYYYY').format('DDMMMYY').toUpperCase();
- 
-      const relevant = positions.filter(p => 
+      
+      const expiryStrCurr = await optionChain.getExpiryDate(0);
+      const expiryTagCurr = moment(expiryStrCurr, 'DDMMMYYYY').format('DDMMMYY').toUpperCase();
+      const expiryStrNext = await optionChain.getExpiryDate(1);
+      const expiryTagNext = moment(expiryStrNext, 'DDMMMYYYY').format('DDMMMYY').toUpperCase();
+
+      let expiryStr = expiryStrCurr;
+      let expiryTag = expiryTagCurr;
+
+      let relevant = positions.filter(p => 
         p.tradingsymbol.startsWith('NIFTY') && 
-        p.tradingsymbol.includes(expiryTag) && 
+        p.tradingsymbol.includes(expiryTagCurr) && 
         parseInt(p.netqty) !== 0
       );
+
+      if (relevant.length === 0) {
+        relevant = positions.filter(p => 
+          p.tradingsymbol.startsWith('NIFTY') && 
+          p.tradingsymbol.includes(expiryTagNext) && 
+          parseInt(p.netqty) !== 0
+        );
+        if (relevant.length > 0) {
+          expiryStr = expiryStrNext;
+          expiryTag = expiryTagNext;
+        }
+      }
  
       if (relevant.length === 0) {
-        logger.warn(`No relevant positions found for expiry ${expiryTag}`);
+        logger.warn(`No relevant positions found for expiry ${expiryTagCurr} or ${expiryTagNext}`);
         return false;
       }
  
@@ -101,6 +123,7 @@ async function reconstructState(jwtToken) {
         sellCall: null,
         buyCall:  null,
       };
+      state.expiryDate = expiryStr;
  
       relevant.forEach(p => {
         const qty = parseInt(p.netqty);
@@ -122,13 +145,12 @@ async function reconstructState(jwtToken) {
           strike: extractedStrike,
           quantity: Math.abs(qty),
           transactionType: qty > 0 ? 'BUY' : 'SELL',
-          status: 'OPEN'
+          status: 'OPEN',
+          expiry: expiryStr
         };
  
         if (isPut) {
           if (qty < 0) {
-            // If we have two sell puts, the one further away might be the original wall
-            // But usually we'd only have one unless adjusted.
             if (!state.legs.sellPut) state.legs.sellPut = legData;
             else state.legs.newAtmPut = legData; // if already adjusted
           } else {
