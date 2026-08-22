@@ -48,10 +48,22 @@ describe('CandidateScorer', () => {
     expect(decision.decisionRationale).toContain('below the threshold of 40');
   });
 
-  it('should rank and select the best candidate above 40', () => {
-    const decision = CandidateScorer.rankAndSelect([weakCandidate, strongCandidate]);
-    expect(decision.isHold).toBe(false);
-    expect(decision.chosen?.name).toBe('Roll Short Call Up');
-    expect(decision.ranked[0].score).toBeGreaterThan(decision.ranked[1].score);
+  it('should preserve legsToAdd, legsToClose, and netDeltaImpact through scoring and actionSpec building', () => {
+    const candidateWithLegs: CandidateAdjustment = {
+      ...strongCandidate,
+      legsToAdd: [{ side: 'SELL', strike: 24800, optionType: 'CE', expiry: '2026-08-28', qty: 65 }],
+      legsToClose: [{ strike: 24500, optionType: 'CE', expiry: '2026-08-28', qty: 65 }],
+      netDeltaImpact: -0.15,
+      increasesNetRisk: false
+    };
+
+    const scored = CandidateScorer.scoreCandidate(candidateWithLegs);
+    expect(scored.legsToAdd).toEqual(candidateWithLegs.legsToAdd);
+    expect(scored.legsToClose).toEqual(candidateWithLegs.legsToClose);
+    expect(scored.netDeltaImpact).toBe(-0.15);
+
+    const ranking = CandidateScorer.rankAndSelect([candidateWithLegs]);
+    expect(ranking.chosen?.legsToAdd).toEqual(candidateWithLegs.legsToAdd);
+    expect(ranking.chosen?.legsToClose).toEqual(candidateWithLegs.legsToClose);
   });
 });

@@ -9,6 +9,24 @@ export interface CandidateAdjustment {
   cost: number;               // Cost of adjustment / net debit in INR
   historicalAnalogueCount: number; // Number of analogues found in data lake
   urgencyFired: boolean;      // True if danger threshold or wall breached
+  legsToAdd?: Array<{
+    side: 'BUY' | 'SELL';
+    strike: number;
+    optionType: 'CE' | 'PE';
+    expiry: string;
+    qty: number;
+    estimatedPrice?: number;
+  }>;
+  legsToClose?: Array<{
+    symbol?: string;
+    strike: number;
+    optionType: 'CE' | 'PE';
+    expiry: string;
+    qty: number;
+    estimatedPrice?: number;
+  }>;
+  netDeltaImpact?: number;
+  increasesNetRisk?: boolean;
   sources?: string[];
 }
 

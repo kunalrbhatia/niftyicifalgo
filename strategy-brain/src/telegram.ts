@@ -42,8 +42,13 @@ export class TelegramNotifier {
     strategy: string,
     action: any,
     score: number,
-    violations: string[]
+    violations: string[],
+    approvalId?: string
   ): Promise<void> {
+    const approvalText = approvalId 
+      ? `<b>Approval ID:</b> <code>${approvalId}</code>\n\n<i>Reply with <code>/brain approve ${approvalId}</code> or <code>/brain reject ${approvalId}</code></i>`
+      : `<i>Reply with <code>/brain approve ${strategy}</code> or <code>/brain reject ${strategy}</code></i>`;
+
     const text = `
 ⚠️ <b>[STRATEGY BRAIN - TIER 2 CONFIRMATION REQUIRED]</b> ⚠️
 
@@ -60,7 +65,7 @@ ${action.rationale}
 <b>Violations/Gates:</b>
 ${violations.map(v => `• ${v}`).join('\n') || 'None (Structure Shift)'}
 
-<i>Reply with <code>/brain approve ${strategy}</code> or <code>/brain reject ${strategy}</code></i>
+${approvalText}
     `.trim();
 
     await this.sendMessage(text);
@@ -106,5 +111,37 @@ ${details}
     `.trim();
 
     await this.sendMessage(text);
+  }
+
+  /**
+   * Registers a handler for /brain approve <id>
+   */
+  public handleApproveCommand(
+    handler: (approvalId: string) => Promise<{ success: boolean; message: string }>
+  ): (commandText: string) => Promise<string> {
+    return async (commandText: string) => {
+      const match = commandText.match(/^\/brain\s+approve\s+([a-zA-Z0-9_-]+)/);
+      if (!match) {
+        return 'Invalid format. Usage: /brain approve <approval_id>';
+      }
+      const res = await handler(match[1]);
+      return res.message;
+    };
+  }
+
+  /**
+   * Registers a handler for /brain reject <id>
+   */
+  public handleRejectCommand(
+    handler: (approvalId: string) => Promise<{ success: boolean; message: string }>
+  ): (commandText: string) => Promise<string> {
+    return async (commandText: string) => {
+      const match = commandText.match(/^\/brain\s+reject\s+([a-zA-Z0-9_-]+)/);
+      if (!match) {
+        return 'Invalid format. Usage: /brain reject <approval_id>';
+      }
+      const res = await handler(match[1]);
+      return res.message;
+    };
   }
 }

@@ -18,6 +18,24 @@ export interface BrainCycleResult {
   rationale: string;
 }
 
+export function buildActionSpecFromCandidate(
+  chosen: ScoredCandidate,
+  sitrep?: SituationReport
+): AdjustmentAction {
+  return {
+    name: chosen.name,
+    type: chosen.type as AdjustmentAction['type'],
+    description: chosen.description,
+    legsToAdd: chosen.legsToAdd ?? [],
+    legsToClose: chosen.legsToClose ?? [],
+    netDebitEstimate: chosen.cost ?? 0,
+    netDeltaImpact: chosen.netDeltaImpact ?? 0,
+    changesStructureType: chosen.type === 'CONVERT_STRUCTURE',
+    increasesNetRisk: chosen.increasesNetRisk ?? false,
+    rationale: chosen.rationale
+  };
+}
+
 export class BrainOrchestrator {
   private safety = new SafetyRails();
   private ledger = new DecisionLedger();
@@ -98,18 +116,24 @@ export class BrainOrchestrator {
       const todayCount = await this.ledger.getTodayAdjustmentCount(sitrep.strategy);
       const weekCount = await this.ledger.getWeeklyAdjustmentCount(sitrep.strategy);
 
-      const actionSpec: AdjustmentAction = {
-        name: chosen.name,
-        type: chosen.type as any,
-        description: chosen.description,
-        legsToAdd: [{ side: 'SELL', strike: sitrep.spot + 400, optionType: 'CE', expiry: '2026-08-28', qty: 65 }],
-        legsToClose: [{ strike: sitrep.shortStrikeProximity.closestShort, optionType: 'CE', expiry: '2026-08-28', qty: 65 }],
-        netDebitEstimate: chosen.cost,
-        netDeltaImpact: -0.10,
-        changesStructureType: chosen.type === 'CONVERT_STRUCTURE',
-        increasesNetRisk: false,
-        rationale: chosen.rationale
-      };
+      // Build action spec from chosen candidate's REAL legs
+      const actionSpec = buildActionSpecFromCandidate(chosen, sitrep);
+
+      const hasLegs = (actionSpec.legsToAdd && actionSpec.legsToAdd.length > 0) ||
+                      (actionSpec.legsToClose && actionSpec.legsToClose.length > 0);
+
+      if (!hasLegs && actionSpec.type !== 'HOLD') {
+        console.warn(`[Brain:Execute] Chosen candidate ${chosen.name} has no concrete legs specified. Skipping execution.`);
+        return {
+          sitrep,
+          candidates: ranking.ranked,
+          chosen,
+          isHold: true,
+          executed: false,
+          verified: true,
+          rationale: `Candidate ${chosen.name} had no concrete legs to execute.`
+        };
+      }
 
       console.log(`[Brain:Execute] Executing adjustment: ${chosen.name}...`);
       const execResult = await this.executor.execute(sitrep.strategy, actionSpec, {
@@ -119,29 +143,11 @@ export class BrainOrchestrator {
 
       executed = execResult.success;
 
-      // 7. Verify Post-Execution
+      // 7. Verify Post-Execution against real execution fills
       if (executed) {
-        // Construct mock post legs for simulation
-        const postLegs: LegPosition[] = sitrep.combinedPosition.legs.map(l => {
-          if (l.strike === sitrep.shortStrikeProximity.closestShort) {
-            return { ...l, status: 'CLOSED' };
-          }
-          return l;
-        });
-        postLegs.push({
-          symbol: 'NIFTY_NEW_LEG',
-          side: 'SELL',
-          strike: sitrep.spot + 400,
-          optionType: 'CE',
-          expiry: '2026-08-28',
-          qty: 65,
-          ltp: 15.0,
-          status: 'OPEN'
-        });
-
-        const vResult = ExecutionVerifier.verifyAdjustment(sitrep, postLegs, actionSpec);
+        const vResult = ExecutionVerifier.verifyAdjustment(sitrep, actionSpec, execResult);
         verified = vResult.verified;
-        console.log(`[Brain:Verify] ${vResult.message}`);
+        console.log(`[Brain:Verify] (${vResult.source}) ${vResult.message}`);
       }
 
       // 8. Write to Decision Ledger
