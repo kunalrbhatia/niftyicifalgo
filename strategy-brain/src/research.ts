@@ -112,9 +112,26 @@ export class ResearchEngine {
     const isUrgent = sitrep.triggerFired === 'MTM_DANGER' || sitrep.triggerFired === 'WALL_PROXIMITY';
 
     for (const p of plays) {
+      const isRoll = p.play.toLowerCase().includes('roll');
+      const isConvert = p.play.toLowerCase().includes('convert') || p.play.toLowerCase().includes('butterfly');
+      const playType = isRoll ? 'ROLL_SHORT' : (isConvert ? 'CONVERT_STRUCTURE' : 'CLOSE_LEG');
+      
+      const threatenedShort = sitrep.shortStrikeProximity.closestShort || sitrep.spot;
+      const threatenedType = sitrep.shortStrikeProximity.optionType || 'CE';
+      const newStrike = threatenedType === 'CE' ? threatenedShort + 300 : threatenedShort - 300;
+      const expiry = sitrep.combinedPosition.legs[0]?.expiry || '2026-08-28';
+      const qty = sitrep.combinedPosition.legs[0]?.qty || 65;
+
+      const legsToClose = [
+        { strike: threatenedShort, optionType: threatenedType, expiry, qty, estimatedPrice: 40.0 }
+      ];
+      const legsToAdd = [
+        { side: 'SELL' as const, strike: newStrike, optionType: threatenedType, expiry, qty, estimatedPrice: 20.0 }
+      ];
+
       candidates.push({
         name: p.play,
-        type: p.play.toLowerCase().includes('roll') ? 'ROLL_SHORT' : (p.play.toLowerCase().includes('convert') ? 'CONVERT_STRUCTURE' : 'CLOSE_LEG'),
+        type: playType,
         description: `${p.play}: ${p.legsToAdjust}. Effective when: ${p.whenItWorks}. Fails when: ${p.whenItFails}`,
         rationale: `Matched condition: "${p.condition}". Target: ${p.whenItWorks}`,
         evImprovement: 8000,
@@ -123,12 +140,18 @@ export class ResearchEngine {
         cost: p.costCap.includes('₹') ? parseFloat(p.costCap.replace(/[^0-9]/g, '')) || 4000 : 3000,
         historicalAnalogueCount: 4, // Found analogues in data lake
         urgencyFired: isUrgent,
+        legsToAdd,
+        legsToClose,
+        netDeltaImpact: threatenedType === 'CE' ? -0.15 : 0.15,
+        increasesNetRisk: false,
         sources: ['playbook/' + sitrep.strategy + '.md']
       });
     }
 
     // If no candidate from playbook, add baseline defensive play
     if (candidates.length === 0) {
+      const expiry = sitrep.combinedPosition.legs[0]?.expiry || '2026-08-28';
+      const qty = sitrep.combinedPosition.legs[0]?.qty || 65;
       candidates.push({
         name: 'Defensive Delta Neutralization',
         type: 'HEDGE_DELTA',
@@ -140,6 +163,10 @@ export class ResearchEngine {
         cost: 3500,
         historicalAnalogueCount: 1,
         urgencyFired: isUrgent,
+        legsToAdd: [{ side: 'BUY', strike: sitrep.spot, optionType: 'PE', expiry, qty, estimatedPrice: 35.0 }],
+        legsToClose: [],
+        netDeltaImpact: -0.10,
+        increasesNetRisk: false,
         sources: ['web-search']
       });
     }

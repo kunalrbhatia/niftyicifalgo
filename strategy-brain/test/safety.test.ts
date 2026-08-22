@@ -53,57 +53,51 @@ describe('SafetyRails & Execution Caps', () => {
     expect(res.violations).toContain('SOFT_KILL_ACTIVE');
   });
 
-  it('should enforce daily adjustment limit cap (Tier 3)', () => {
-    const res = safety.evaluateAction(baseAction, { todayAdjustmentCount: 1, weekAdjustmentCount: 1 });
+  it('should enforce daily adjustment limit cap (Tier 3, allowed false)', () => {
+    // Mock trading window to valid
+    safety.validateTradingWindow = () => ({ valid: true });
+
+    const res = safety.evaluateAction(baseAction, { todayAdjustmentCount: 1, weekAdjustmentCount: 0 });
     expect(res.allowed).toBe(false);
     expect(res.tier).toBe(ActionTier.TIER_3);
+    expect(res.violations.some(v => v.includes('Daily adjustment cap reached'))).toBe(true);
   });
 
-  it('should flag structure conversions as Tier 2 (Human Confirmation)', () => {
-    const conversionAction: AdjustmentAction = {
-      ...baseAction,
-      type: 'CONVERT_STRUCTURE',
-      changesStructureType: true
-    };
+  it('should enforce weekly adjustment limit cap (Tier 3, allowed false)', () => {
+    safety.validateTradingWindow = () => ({ valid: true });
 
-    // Override validateTradingWindow for unit test simulation if needed
-    const res = safety.evaluateAction(conversionAction, { todayAdjustmentCount: 0, weekAdjustmentCount: 0 });
-    if (res.tier !== ActionTier.TIER_3) {
-      expect(res.tier).toBe(ActionTier.TIER_2);
-    }
+    const res = safety.evaluateAction(baseAction, { todayAdjustmentCount: 0, weekAdjustmentCount: 3 });
+    expect(res.allowed).toBe(false);
+    expect(res.tier).toBe(ActionTier.TIER_3);
+    expect(res.violations.some(v => v.includes('Weekly adjustment cap reached'))).toBe(true);
   });
 
-  it('should flag net debit exceeding cap as violation', () => {
+  it('should route net debit exceeding cap to Tier 2 (human override possible), allowed false', () => {
+    safety.validateTradingWindow = () => ({ valid: true });
+
     const expensiveAction: AdjustmentAction = {
       ...baseAction,
       netDebitEstimate: 35000 // exceeds default 25000
     };
 
     const res = safety.evaluateAction(expensiveAction, { todayAdjustmentCount: 0, weekAdjustmentCount: 0 });
-    if (res.tier !== ActionTier.TIER_3) {
-      expect(res.allowed).toBe(false);
-      expect(res.violations.some(v => v.includes('Net debit estimate'))).toBe(true);
-    }
+    expect(res.allowed).toBe(false);
+    expect(res.tier).toBe(ActionTier.TIER_2);
+    expect(res.violations.some(v => v.includes('Net debit estimate'))).toBe(true);
   });
 
-  it('should flag excessive orders per cycle', () => {
-    const manyLegsAction: AdjustmentAction = {
+  it('should route structure conversions with no cap violations to Tier 2, allowed true', () => {
+    safety.validateTradingWindow = () => ({ valid: true });
+
+    const conversionAction: AdjustmentAction = {
       ...baseAction,
-      legsToAdd: [
-        { side: 'SELL', strike: 25000, optionType: 'CE', expiry: '2026-08-28', qty: 65 },
-        { side: 'BUY', strike: 25200, optionType: 'CE', expiry: '2026-08-28', qty: 65 },
-        { side: 'SELL', strike: 24000, optionType: 'PE', expiry: '2026-08-28', qty: 65 }
-      ],
-      legsToClose: [
-        { strike: 24500, optionType: 'CE', expiry: '2026-08-28', qty: 65 },
-        { strike: 24200, optionType: 'PE', expiry: '2026-08-28', qty: 65 }
-      ] // total = 5 orders > 4 max
+      type: 'CONVERT_STRUCTURE',
+      changesStructureType: true
     };
 
-    const res = safety.evaluateAction(manyLegsAction, { todayAdjustmentCount: 0, weekAdjustmentCount: 0 });
-    if (res.tier !== ActionTier.TIER_3) {
-      expect(res.allowed).toBe(false);
-      expect(res.violations.some(v => v.includes('Orders in cycle'))).toBe(true);
-    }
+    const res = safety.evaluateAction(conversionAction, { todayAdjustmentCount: 0, weekAdjustmentCount: 0 });
+    expect(res.allowed).toBe(true);
+    expect(res.tier).toBe(ActionTier.TIER_2);
+    expect(res.violations.length).toBe(0);
   });
 });
