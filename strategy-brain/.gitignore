@@ -1,0 +1,10 @@
+node_modules
+dist
+.env
+.paper
+.panic
+.kill
+test-scratch
+test-ledger
+ledger/*.jsonl
+!ledger/.gitkeep
