@@ -11,6 +11,7 @@ export const ConfigSchema = z.object({
   NODE_ENV: z.string().default('development'),
   PAPER_MODE: z.boolean().default(true),
   LIVE_ENABLED: z.boolean().default(false),
+  LIVE_EXECUTION_ALLOWED: z.boolean().default(false),
 
   // LLM Config
   LLM_BASE_URL: z.string().default('https://api.openai.com/v1'),
@@ -53,6 +54,7 @@ export const config: Config = ConfigSchema.parse({
   NODE_ENV: process.env.NODE_ENV,
   PAPER_MODE: process.env.PAPER_MODE !== 'false', // Default ON
   LIVE_ENABLED: process.env.LIVE_ENABLED === 'true',
+  LIVE_EXECUTION_ALLOWED: process.env.LIVE_EXECUTION_ALLOWED === 'true',
   LLM_BASE_URL: process.env.LLM_BASE_URL,
   LLM_API_KEY: process.env.LLM_API_KEY || process.env.OPENAI_API_KEY,
   LLM_MODEL: process.env.LLM_MODEL,

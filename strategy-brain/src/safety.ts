@@ -178,7 +178,11 @@ export class SafetyRails {
       violations.push(`Weekly adjustment cap reached (${strategyStats.weekAdjustmentCount}/${config.MAX_ADJUSTMENTS_PER_STRATEGY_WEEK})`);
     }
 
-    if (violations.length > 0) {
+    const hasHardCapViolation = violations.some(v => 
+      v.includes('Daily adjustment cap reached') || v.includes('Weekly adjustment cap reached')
+    );
+
+    if (hasHardCapViolation) {
       return {
         allowed: false,
         tier: ActionTier.TIER_3,
@@ -203,7 +207,10 @@ export class SafetyRails {
       violations.push(`Delta impact (${action.netDeltaImpact}) exceeds cap (${config.MAX_DELTA_CHANGE_PER_ADJUSTMENT})`);
     }
 
-    // Determine Tier
+    // Determine Tier:
+    // TIER_0 for HOLD
+    // TIER_2 for structure changes, increased net risk, or soft cap breaches (overrideable by human)
+    // TIER_1 for pre-approved valid adjustments within rails
     let tier = ActionTier.TIER_1;
     if (action.type === 'HOLD') {
       tier = ActionTier.TIER_0;
