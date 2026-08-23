@@ -111,6 +111,11 @@ export class ResearchEngine {
 
     const isUrgent = sitrep.triggerFired === 'MTM_DANGER' || sitrep.triggerFired === 'WALL_PROXIMITY';
 
+    const underlying = sitrep.marketContext.spotUnderlying || 'NIFTY';
+    const isUnderlyingIndex = underlying === 'NIFTY' || underlying === 'BANKNIFTY' || underlying === 'FINNIFTY';
+    // For high-priced equities (e.g. ABB ~7000) or low-priced equities (e.g. RELIANCE ~1400), scale step appropriately
+    const stepSize = isUnderlyingIndex ? 300 : Math.max(50, Math.round(sitrep.spot * 0.04));
+
     for (const p of plays) {
       const isRoll = p.play.toLowerCase().includes('roll');
       const isConvert = p.play.toLowerCase().includes('convert') || p.play.toLowerCase().includes('butterfly');
@@ -118,9 +123,9 @@ export class ResearchEngine {
       
       const threatenedShort = sitrep.shortStrikeProximity.closestShort || sitrep.spot;
       const threatenedType = sitrep.shortStrikeProximity.optionType || 'CE';
-      const newStrike = threatenedType === 'CE' ? threatenedShort + 300 : threatenedShort - 300;
+      const newStrike = threatenedType === 'CE' ? threatenedShort + stepSize : threatenedShort - stepSize;
       const expiry = sitrep.combinedPosition.legs[0]?.expiry || '2026-08-28';
-      const qty = sitrep.combinedPosition.legs[0]?.qty || 65;
+      const qty = sitrep.combinedPosition.legs[0]?.qty || (isUnderlyingIndex ? 65 : 125);
 
       const legsToClose = [
         { strike: threatenedShort, optionType: threatenedType, expiry, qty, estimatedPrice: 40.0 }
@@ -151,12 +156,12 @@ export class ResearchEngine {
     // If no candidate from playbook, add baseline defensive play
     if (candidates.length === 0) {
       const expiry = sitrep.combinedPosition.legs[0]?.expiry || '2026-08-28';
-      const qty = sitrep.combinedPosition.legs[0]?.qty || 65;
+      const qty = sitrep.combinedPosition.legs[0]?.qty || (isUnderlyingIndex ? 65 : 125);
       candidates.push({
         name: 'Defensive Delta Neutralization',
         type: 'HEDGE_DELTA',
-        description: 'Hedge delta divergence with synthetic wing adjustment',
-        rationale: 'Neutralize net delta skew',
+        description: `Hedge ${underlying} delta divergence with synthetic wing adjustment`,
+        rationale: `Neutralize net delta skew for ${underlying}`,
         evImprovement: 4000,
         pImprovement: 0.55,
         tailRisk: 15000,

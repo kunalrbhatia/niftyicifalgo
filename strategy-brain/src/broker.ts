@@ -200,18 +200,29 @@ export class SmartAPIBrokerClient {
   }
 
   /**
-   * Fetch Spot price for Nifty 50 (READ-ONLY)
+   * Fetch Spot price for an underlying (NIFTY index or Equity) (READ-ONLY)
    */
-  public async fetchSpot(jwt?: string): Promise<number> {
+  public async fetchSpot(jwt?: string, underlying = 'NIFTY'): Promise<number> {
     let token = jwt || (await this.login()).jwtToken;
+
+    const { loadScripMaster, resolveSpotTokenFromScripMaster } = await import('./scripMasterResolver.js');
+    const scripMaster = await loadScripMaster();
+    const tokenInfo = resolveSpotTokenFromScripMaster(scripMaster, underlying);
+
+    const payload = tokenInfo
+      ? {
+          exchange: tokenInfo.exchange,
+          symboltoken: tokenInfo.symboltoken,
+          tradingsymbol: tokenInfo.tradingsymbol
+        }
+      : {
+          exchange: 'NSE',
+          symboltoken: '99926000',
+          tradingsymbol: 'Nifty 50'
+        };
 
     const executeRequest = async (authJwt: string) => {
       const headers = await this.getCommonHeaders(authJwt);
-      const payload = {
-        exchange: 'NSE',
-        symboltoken: '99926000',
-        tradingsymbol: 'Nifty 50'
-      };
       return axios.post(
         'https://apiconnect.angelone.in/rest/secure/angelbroking/order/v1/getLtpData',
         payload,
@@ -235,7 +246,7 @@ export class SmartAPIBrokerClient {
     if (response.data?.status === true && response.data.data) {
       return parseFloat(response.data.data.ltp || '0');
     } else {
-      throw new Error(`Failed to fetch spot price: ${response.data?.message || 'Unknown error'}`);
+      throw new Error(`Failed to fetch spot price for ${underlying}: ${response.data?.message || 'Unknown error'}`);
     }
   }
 }
