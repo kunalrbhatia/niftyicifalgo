@@ -185,33 +185,43 @@ export class BrainOrchestrator {
 }
 
 // CLI Execution Handler
-if (process.argv[1] && process.argv[1].endsWith('orchestrator.ts') || process.argv[1]?.endsWith('orchestrator.js')) {
+if (process.argv[1] && (process.argv[1].endsWith('orchestrator.ts') || process.argv[1]?.endsWith('orchestrator.js'))) {
   const isSitrepOnly = process.argv.includes('--sitrep-only');
   const isPaperCycle = process.argv.includes('--paper-cycle');
+  const isLiveSitrep = process.argv.includes('--live-sitrep') || process.argv.includes('--real');
 
-  // Sample Strangle under pressure
-  const sampleLegs: LegPosition[] = [
-    { symbol: 'NIFTY26AUG24500CE', side: 'SELL', strike: 24500, optionType: 'CE', expiry: '2026-08-28', qty: 65, ltp: 65.0, pnl: -4200, status: 'OPEN' },
-    { symbol: 'NIFTY26AUG23800PE', side: 'SELL', strike: 23800, optionType: 'PE', expiry: '2026-08-28', qty: 65, ltp: 12.0, pnl: 1800, status: 'OPEN' },
-    { symbol: 'NIFTY26SEP24800CE', side: 'BUY', strike: 24800, optionType: 'CE', expiry: '2026-09-04', qty: 65, ltp: 80.0, pnl: 1200, status: 'OPEN' },
-    { symbol: 'NIFTY26SEP23500PE', side: 'BUY', strike: 23500, optionType: 'PE', expiry: '2026-09-04', qty: 65, ltp: 18.0, pnl: -600, status: 'OPEN' }
-  ];
+  (async () => {
+    let sitrep: SituationReport;
 
-  const sitrep = SitrepCollector.buildSitrep({
-    strategy: 'nifty-weekly-calendar-ratio-strangle',
-    legs: sampleLegs,
-    spot: 24460, // Close to 24500 CE wall (40 pts away)
-    daysToT0: 3,
-    marginUtilized: 500000,
-    exitThreshold: 10000
-  });
+    if (isLiveSitrep) {
+      console.log(`[Brain] Fetching REAL broker SITREP from SmartAPI...`);
+      sitrep = await SitrepCollector.buildFromBroker();
+    } else {
+      console.log(`[Brain] NOTE: using DEMO sitrep (hardcoded legs). Use --live-sitrep for real broker data.`);
+      // Sample Strangle under pressure
+      const sampleLegs: LegPosition[] = [
+        { symbol: 'NIFTY26AUG24500CE', side: 'SELL', strike: 24500, optionType: 'CE', expiry: '2026-08-28', qty: 65, ltp: 65.0, pnl: -4200, status: 'OPEN' },
+        { symbol: 'NIFTY26AUG23800PE', side: 'SELL', strike: 23800, optionType: 'PE', expiry: '2026-08-28', qty: 65, ltp: 12.0, pnl: 1800, status: 'OPEN' },
+        { symbol: 'NIFTY26SEP24800CE', side: 'BUY', strike: 24800, optionType: 'CE', expiry: '2026-09-04', qty: 65, ltp: 80.0, pnl: 1200, status: 'OPEN' },
+        { symbol: 'NIFTY26SEP23500PE', side: 'BUY', strike: 23500, optionType: 'PE', expiry: '2026-09-04', qty: 65, ltp: 18.0, pnl: -600, status: 'OPEN' }
+      ];
 
-  if (isSitrepOnly) {
-    console.log(JSON.stringify(sitrep, null, 2));
-  } else if (isPaperCycle) {
-    const brain = new BrainOrchestrator();
-    brain.runCycle(sitrep, { forceEvaluate: true }).then(res => {
+      sitrep = SitrepCollector.buildSitrep({
+        strategy: 'nifty-weekly-calendar-ratio-strangle',
+        legs: sampleLegs,
+        spot: 24460, // Close to 24500 CE wall (40 pts away)
+        daysToT0: 3,
+        marginUtilized: 500000,
+        exitThreshold: 10000
+      });
+    }
+
+    if (isSitrepOnly) {
+      console.log(JSON.stringify(sitrep, null, 2));
+    } else {
+      const brain = new BrainOrchestrator();
+      const res = await brain.runCycle(sitrep, { forceEvaluate: true });
       console.log(`\nCycle Complete. Chosen Action: ${res.chosen?.name || 'HOLD'} (Score: ${res.chosen?.score || 0})`);
-    });
-  }
+    }
+  })();
 }

@@ -47,13 +47,15 @@ An automated, positional trading strategy for Nifty 50 monthly options using Ang
     - `exitManager.js`: Manages the 3:25 PM ITM exit check on expiry.
     - `optionChain.js`: Fetches LTPs, Greeks, and finds expiry dates.
 - `strategy-brain/`: **Strategy Brain (LLM-Driven Self-Healing Options Strategy Manager)**
-  - `src/orchestrator.ts`: Autonomous self-healing loop (Trigger $\rightarrow$ SITREP $\rightarrow$ Research $\rightarrow$ Backtest $\rightarrow$ Score $\rightarrow$ Decide $\rightarrow$ Execute $\rightarrow$ Verify $\rightarrow$ Ledger).
+  - `src/orchestrator.ts`: Autonomous self-healing loop (Trigger $\rightarrow$ SITREP $\rightarrow$ Research $\rightarrow$ Backtest $\rightarrow$ Score $\rightarrow$ Decide $\rightarrow$ Execute $\rightarrow$ Verify $\rightarrow$ Ledger). Supports `--live-sitrep` to watch live SmartAPI broker positions.
+  - `src/broker.ts`: Read-only SmartAPI broker adapter fetching live positions, RMS margin, and NIFTY 50 spot.
+  - `src/positionMapper.ts`: Translates broker positions into Strategy Brain `LegPosition` objects and infers strategy names.
   - `src/safety.ts`: Safety rails, hard panic (`.panic`), soft pause (`.kill`), execution caps, and tier resolution.
-  - `src/sitrep.ts`: Portfolio state collector, combined Greeks, and short strike wall proximity monitoring.
+  - `src/sitrep.ts`: Portfolio state collector, combined Greeks, short strike wall proximity monitoring, and `buildFromBroker()`.
   - `src/scorer.ts`: Multi-factor candidate scoring and ranking engine.
   - `src/ledger.ts`: Append-only JSONL decision ledger and weekly performance reviewer.
   - `src/research.ts` & `src/backtest.ts`: Playbook markdown parser, web search cache, and data-lake analogue backtester.
-  - `src/executor.ts` & `src/verify.ts`: Paper/live order execution, safety gates, and post-execution verification.
+  - `src/executor.ts` & `src/verify.ts`: Paper execution (live hard-blocked), safety gates, and post-execution fill verification.
   - `playbook/`: Curated adjustment playbooks for Iron Condor, Calendar Ratio Strangle, Straddle, and Ratio Spreads.
 - `utils/`: Logging (`winston`), Telegram notifications, and mathematical helpers.
 

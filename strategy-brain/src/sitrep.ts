@@ -235,4 +235,117 @@ export class SitrepCollector {
       triggerFired
     };
   }
+
+  /**
+   * Loads scrip master records if available on disk.
+   */
+  public static async loadScripMaster(filePath = config.SCRIP_MASTER_PATH): Promise<any[]> {
+    const candidates = [
+      path.resolve(filePath),
+      path.resolve(process.cwd(), '../scrip_master.json'),
+      path.resolve(process.cwd(), './scrip_master.json')
+    ];
+
+    for (const p of candidates) {
+      if (fs.existsSync(p)) {
+        try {
+          const content = await fs.promises.readFile(p, 'utf8');
+          return JSON.parse(content);
+        } catch {
+          // ignore error and check next candidate
+        }
+      }
+    }
+
+    return [];
+  }
+
+  /**
+   * Fetches real live broker data from SmartAPI and creates a SituationReport.
+   */
+  public static async buildFromBroker(
+    strategyFilter?: string,
+    brokerClient?: any
+  ): Promise<SituationReport> {
+    const { SmartAPIBrokerClient } = await import('./broker.js');
+    const { PositionMapper } = await import('./positionMapper.js');
+    const moment = (await import('moment-timezone')).default;
+
+    const client = brokerClient || new SmartAPIBrokerClient();
+
+    try {
+      const auth = await client.login();
+      const rawPositions = await client.fetchPositions(auth.jwtToken);
+      const marginUtilized = await client.fetchRMSMargin(auth.jwtToken).catch(() => 0);
+      const spot = await client.fetchSpot(auth.jwtToken).catch(() => 24500);
+      const scripMaster = await this.loadScripMaster();
+
+      // Filter to NFO / relevant strategy if requested
+      const prefix = strategyFilter || config.STRATEGY_PREFIX;
+      const filteredPositions = rawPositions.filter((p: any) => {
+        if (p.exchange && p.exchange !== 'NFO' && p.exchange !== 'BFO') {
+          return false;
+        }
+        if (prefix) {
+          return p.symbol.startsWith(prefix);
+        }
+        return true;
+      });
+
+      const legs = PositionMapper.mapBrokerPositionsToLegs(filteredPositions, scripMaster);
+      const derivedStrategy = prefix || PositionMapper.deriveStrategyName(legs);
+
+      if (legs.length === 0) {
+        const emptySitrep = this.buildSitrep({
+          strategy: derivedStrategy,
+          legs: [],
+          spot,
+          daysToT0: 0,
+          marginUtilized,
+          exitThreshold: PositionMapper.computeExitThreshold(derivedStrategy, marginUtilized)
+        });
+        emptySitrep.status = 'NO_POSITION';
+        return emptySitrep;
+      }
+
+      // Calculate days to T0 (nearest expiry)
+      const now = moment().tz('Asia/Kolkata');
+      let minDaysToT0 = 999;
+      for (const leg of legs) {
+        const legExpiry = moment.tz(leg.expiry, 'Asia/Kolkata');
+        const diffDays = Math.max(0, legExpiry.diff(now, 'days'));
+        if (diffDays < minDaysToT0) {
+          minDaysToT0 = diffDays;
+        }
+      }
+
+      const exitThreshold = PositionMapper.computeExitThreshold(derivedStrategy, marginUtilized);
+
+      return this.buildSitrep({
+        strategy: derivedStrategy,
+        legs,
+        spot,
+        daysToT0: minDaysToT0 === 999 ? 0 : minDaysToT0,
+        marginUtilized,
+        exitThreshold,
+        marketContext: {
+          niftySpot: spot,
+          isExpiryDay: minDaysToT0 === 0,
+          daysToMonthlyExpiry: minDaysToT0
+        }
+      });
+    } catch (err: any) {
+      console.error(`[SitrepCollector] Failed to fetch live data from broker: ${err.message}`);
+      const fallbackSitrep = this.buildSitrep({
+        strategy: strategyFilter || 'LIVE-BROKER-ERROR',
+        legs: [],
+        spot: 24500,
+        daysToT0: 0,
+        marginUtilized: 0,
+        exitThreshold: 10000
+      });
+      fallbackSitrep.status = 'NO_POSITION';
+      return fallbackSitrep;
+    }
+  }
 }

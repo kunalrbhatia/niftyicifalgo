@@ -33,14 +33,23 @@ export const ConfigSchema = z.object({
   DANGER_THRESHOLD_FACTOR: z.number().default(0.50), // 50% of exit threshold
   WALL_DISTANCE_POINTS: z.number().default(50), // 50 points to short strike
   
+  // Broker Config
+  ANGEL_CLIENT_ID: z.string().optional().default(''),
+  ANGEL_PASSWORD: z.string().optional().default(''),
+  ANGEL_TOTP_SECRET: z.string().optional().default(''),
+  ANGEL_API_KEY: z.string().optional().default(''),
+  ANGEL_PUBLIC_IP: z.string().default('103.160.108.203'),
+  SCRIP_MASTER_PATH: z.string().default('/home/ubuntu/niftyicifalgo/scrip_master.json'),
+  STRATEGY_PREFIX: z.string().optional().default(''),
+
   // Telegram Configuration
   TELEGRAM_BOT_TOKEN: z.string().optional().default(''),
   TELEGRAM_CHAT_ID: z.string().optional().default(''),
   USE_TELEGRAM: z.boolean().default(true),
 
   // Data Lake Paths
-  DATA_LAKE_PATH: z.string().default('/home/ubuntu/nifty-optionchain-data/data/chains/'),
-  SENSEX_DATA_LAKE_PATH: z.string().default('/home/ubuntu/nifty-optionchain-data/data/sensex-chains/'),
+  DATA_LAKE_PATH: z.string().default('/home/ubuntu/niftyicifalgo/data/chains/'),
+  SENSEX_DATA_LAKE_PATH: z.string().default('/home/ubuntu/niftyicifalgo/data/sensex-chains/'),
 
   // Paths
   PLAYBOOK_DIR: z.string().default('./playbook'),
@@ -69,6 +78,13 @@ export const config: Config = ConfigSchema.parse({
   MAX_ADJUSTMENTS_PER_STRATEGY_WEEK: process.env.MAX_ADJUSTMENTS_PER_STRATEGY_WEEK ? parseInt(process.env.MAX_ADJUSTMENTS_PER_STRATEGY_WEEK, 10) : undefined,
   DANGER_THRESHOLD_FACTOR: process.env.DANGER_THRESHOLD_FACTOR ? parseFloat(process.env.DANGER_THRESHOLD_FACTOR) : undefined,
   WALL_DISTANCE_POINTS: process.env.WALL_DISTANCE_POINTS ? parseFloat(process.env.WALL_DISTANCE_POINTS) : undefined,
+  ANGEL_CLIENT_ID: process.env.ANGEL_CLIENT_ID || process.env.BROKER_CLIENT_ID,
+  ANGEL_PASSWORD: process.env.ANGEL_PASSWORD || process.env.BROKER_PASSWORD,
+  ANGEL_TOTP_SECRET: process.env.ANGEL_TOTP_SECRET || process.env.BROKER_TOTP_SECRET,
+  ANGEL_API_KEY: process.env.ANGEL_API_KEY || process.env.BROKER_API_KEY,
+  ANGEL_PUBLIC_IP: process.env.ANGEL_PUBLIC_IP,
+  SCRIP_MASTER_PATH: process.env.SCRIP_MASTER_PATH,
+  STRATEGY_PREFIX: process.env.STRATEGY_PREFIX,
   TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
   TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID,
   USE_TELEGRAM: process.env.USE_TELEGRAM ? process.env.USE_TELEGRAM === 'true' : true,
