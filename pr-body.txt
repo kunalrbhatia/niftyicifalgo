@@ -1,0 +1,19 @@
+### Description
+
+Connects the Strategy Brain to Angel One SmartAPI in read-only mode so it builds its Situation Report (SITREP) from real live broker positions, RMS margin (`utiliseddebits`), and Nifty spot price. Real live order placement remains strictly hard-blocked.
+
+### Changes
+
+- Added `strategy-brain/src/broker.ts` read-only SmartAPI broker client with TOTP authentication and session token caching.
+- Added `strategy-brain/src/positionMapper.ts` to parse exchange trading symbols into structured legs and derive strategy names.
+- Updated `strategy-brain/src/sitrep.ts` with `SitrepCollector.buildFromBroker()` to ingest live positions and spot data.
+- Added `--live-sitrep` and `--real` CLI flags in `strategy-brain/src/orchestrator.ts`, with clear console notice when falling back to demo data.
+- Updated `strategy-brain/src/config.ts` and `.env.example` with SmartAPI configuration variables.
+- Added comprehensive unit tests in `strategy-brain/test/broker.test.ts` and `strategy-brain/test/positionMapper.test.ts`.
+- Updated `README.md` with broker adapter docs.
+
+### Verification
+
+- Ran `npm run verify` in `strategy-brain`: All 29 unit tests pass and TypeScript check passed.
+- Ran `node dist/orchestrator.js --sitrep-only` in `strategy-brain`: Successfully emitted SITREP.
+- Verified README update rule with `node .agents/skills/readme-auto-update/scripts/check-readme.cjs`.
