@@ -296,10 +296,19 @@ export class SitrepCollector {
         }
       }
 
+      const { resolveSpotTokenWithFallback } = await import('./scripMasterResolver.js');
+      const spotToken = await resolveSpotTokenWithFallback(underlying);
+
       let approximateSpot = false;
       let spot = 24500;
       try {
-        spot = await client.fetchSpot(auth.jwtToken, underlying);
+        if (spotToken) {
+          spot = await client.fetchSpot(auth.jwtToken, underlying, spotToken);
+        } else {
+          console.warn(`[SitrepCollector] Could not resolve spot token for ${underlying}. Falling back to NIFTY spot.`);
+          approximateSpot = true;
+          spot = await client.fetchSpot(auth.jwtToken, 'NIFTY').catch(() => 24500);
+        }
       } catch (spotErr: any) {
         console.warn(`[SitrepCollector] Spot fetch failed for ${underlying} (${spotErr.message}). Using fallback 24500.`);
         approximateSpot = true;

@@ -40,6 +40,8 @@ export const ConfigSchema = z.object({
   ANGEL_API_KEY: z.string().optional().default(''),
   ANGEL_PUBLIC_IP: z.string().default('103.160.108.203'),
   SCRIP_MASTER_PATH: z.string().default('/home/ubuntu/niftyicifalgo/scrip_master.json'),
+  FULL_SCRIP_MASTER_PATH: z.string().default('./data/full-scrip-master.json'),
+  FULL_SCRIP_MASTER_TTL_HOURS: z.number().default(24),
   STRATEGY_PREFIX: z.string().optional().default(''),
 
   // Telegram Configuration
@@ -84,6 +86,8 @@ export const config: Config = ConfigSchema.parse({
   ANGEL_API_KEY: process.env.ANGEL_API_KEY || process.env.BROKER_API_KEY,
   ANGEL_PUBLIC_IP: process.env.ANGEL_PUBLIC_IP,
   SCRIP_MASTER_PATH: process.env.SCRIP_MASTER_PATH,
+  FULL_SCRIP_MASTER_PATH: process.env.FULL_SCRIP_MASTER_PATH,
+  FULL_SCRIP_MASTER_TTL_HOURS: process.env.FULL_SCRIP_MASTER_TTL_HOURS ? parseFloat(process.env.FULL_SCRIP_MASTER_TTL_HOURS) : undefined,
   STRATEGY_PREFIX: process.env.STRATEGY_PREFIX,
   TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
   TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID,

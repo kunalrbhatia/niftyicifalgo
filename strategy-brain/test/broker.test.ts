@@ -68,21 +68,32 @@ describe('SmartAPIBrokerClient & Broker-driven SITREP', () => {
     expect(spot).toBe(24550.25);
   });
 
-  it('should fetch Spot price for equity underlying such as ABB', async () => {
+  it('should fetch Spot price with pre-resolved spotToken directly', async () => {
+    let capturedPayload: any = null;
     (axios.post as any).mockImplementation((url: string, payload: any) => {
       if (url.includes('getLtpData')) {
+        capturedPayload = payload;
         return Promise.resolve({
           data: {
             status: true,
-            data: { ltp: 7150.50 }
+            data: { ltp: 7210.00 }
           }
         });
       }
       return Promise.resolve({ data: {} });
     });
 
-    const spot = await broker.fetchSpot('mock_jwt', 'ABB');
-    expect(spot).toBe(7150.50);
+    const spot = await broker.fetchSpot('mock_jwt', 'ABB', {
+      exchange: 'NSE',
+      symboltoken: '13',
+      tradingsymbol: 'ABB-EQ'
+    });
+    expect(spot).toBe(7210.00);
+    expect(capturedPayload).toEqual({
+      exchange: 'NSE',
+      symboltoken: '13',
+      tradingsymbol: 'ABB-EQ'
+    });
   });
 
   it('should produce a full SituationReport via SitrepCollector.buildFromBroker', async () => {
@@ -117,7 +128,11 @@ describe('SmartAPIBrokerClient & Broker-driven SITREP', () => {
     expect(sitrep.status).toBe('FULL_ENTRY');
     expect(sitrep.spot).toBe(7180);
     expect(sitrep.marketContext.spotUnderlying).toBe('ABB');
-    expect(mockBroker.fetchSpot).toHaveBeenCalledWith('mock_jwt', 'ABB');
+    expect(mockBroker.fetchSpot).toHaveBeenCalledWith(
+      'mock_jwt',
+      'ABB',
+      expect.objectContaining({ symboltoken: '13', tradingsymbol: 'ABB-EQ' })
+    );
   });
 
   it('should return NO_POSITION when broker has no open positions', async () => {
