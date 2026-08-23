@@ -202,12 +202,18 @@ export class SmartAPIBrokerClient {
   /**
    * Fetch Spot price for an underlying (NIFTY index or Equity) (READ-ONLY)
    */
-  public async fetchSpot(jwt?: string, underlying = 'NIFTY'): Promise<number> {
+  public async fetchSpot(
+    jwt?: string,
+    underlying = 'NIFTY',
+    spotToken?: { exchange: string; symboltoken: string; tradingsymbol: string } | null
+  ): Promise<number> {
     let token = jwt || (await this.login()).jwtToken;
 
-    const { loadScripMaster, resolveSpotTokenFromScripMaster } = await import('./scripMasterResolver.js');
-    const scripMaster = await loadScripMaster();
-    const tokenInfo = resolveSpotTokenFromScripMaster(scripMaster, underlying);
+    let tokenInfo = spotToken;
+    if (!tokenInfo) {
+      const { resolveSpotTokenWithFallback } = await import('./scripMasterResolver.js');
+      tokenInfo = await resolveSpotTokenWithFallback(underlying);
+    }
 
     const payload = tokenInfo
       ? {

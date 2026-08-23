@@ -1,6 +1,15 @@
-import { describe, it, expect } from 'vitest';
-import { resolveSpotTokenFromScripMaster } from '../src/scripMasterResolver.js';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import axios from 'axios';
+import fs from 'fs';
+import path from 'path';
+import {
+  resolveSpotTokenFromScripMaster,
+  resolveSpotTokenWithFallback,
+  downloadFullScripMaster
+} from '../src/scripMasterResolver.js';
 import { ScripRecord } from '../src/positionMapper.js';
+
+vi.mock('axios');
 
 describe('scripMasterResolver', () => {
   const mockScripMaster: ScripRecord[] = [
@@ -86,4 +95,101 @@ describe('scripMasterResolver', () => {
     const res = resolveSpotTokenFromScripMaster(mockScripMaster, '');
     expect(res).toBeNull();
   });
+
+  it('should resolve NIFTY via resolveSpotTokenWithFallback without network or disk fetch', async () => {
+    const res = await resolveSpotTokenWithFallback('NIFTY');
+    expect(res).toEqual({
+      exchange: 'NSE',
+      symboltoken: '99926000',
+      tradingsymbol: 'Nifty 50'
+    });
+    expect(axios.get).not.toHaveBeenCalled();
+  });
+
+  describe('downloadFullScripMaster & fallback resolution', () => {
+    const testCachePath = './test-scratch/test-full-scrip-master.json';
+
+    beforeEach(async () => {
+      vi.clearAllMocks();
+      const testDir = path.resolve(process.cwd(), './test-scratch');
+      if (fs.existsSync(testDir)) {
+        await fs.promises.rm(testDir, { recursive: true, force: true });
+      }
+    });
+
+    afterEach(async () => {
+      const testDir = path.resolve(process.cwd(), './test-scratch');
+      if (fs.existsSync(testDir)) {
+        await fs.promises.rm(testDir, { recursive: true, force: true });
+      }
+    });
+
+    it('should download full master if cache does not exist and save to disk', async () => {
+      const mockFullData = [
+        { token: '13', symbol: 'ABB-EQ', name: 'ABB', exch_seg: 'NSE', instrumenttype: '' },
+        { token: '2885', symbol: 'RELIANCE-EQ', name: 'RELIANCE', exch_seg: 'NSE', instrumenttype: 'EQ' }
+      ];
+      (axios.get as any).mockResolvedValueOnce({ data: mockFullData });
+
+      const records = await downloadFullScripMaster(testCachePath, 24);
+      expect(records.length).toBe(2);
+      expect(axios.get).toHaveBeenCalledTimes(1);
+
+      // Verify file written to disk
+      expect(fs.existsSync(path.resolve(process.cwd(), testCachePath))).toBe(true);
+    });
+
+    it('should use existing cache within TTL without re-downloading', async () => {
+      const mockFullData = [
+        { token: '13', symbol: 'ABB-EQ', name: 'ABB', exch_seg: 'NSE', instrumenttype: '' }
+      ];
+      const resolvedPath = path.resolve(process.cwd(), testCachePath);
+      await fs.promises.mkdir(path.dirname(resolvedPath), { recursive: true });
+      await fs.promises.writeFile(resolvedPath, JSON.stringify(mockFullData), 'utf8');
+
+      const records = await downloadFullScripMaster(testCachePath, 24);
+      expect(records.length).toBe(1);
+      expect(records[0].token).toBe('13');
+      expect(axios.get).not.toHaveBeenCalled();
+    });
+
+    it('should re-download when cache is older than TTL', async () => {
+      const staleData = [{ token: '99', symbol: 'OLD-EQ', name: 'OLD', exch_seg: 'NSE' }];
+      const freshData = [{ token: '13', symbol: 'ABB-EQ', name: 'ABB', exch_seg: 'NSE' }];
+      
+      const resolvedPath = path.resolve(process.cwd(), testCachePath);
+      await fs.promises.mkdir(path.dirname(resolvedPath), { recursive: true });
+      await fs.promises.writeFile(resolvedPath, JSON.stringify(staleData), 'utf8');
+
+      // Set file mtime to 30 hours ago
+      const pastTime = (Date.now() - 30 * 60 * 60 * 1000) / 1000;
+      await fs.promises.utimes(resolvedPath, pastTime, pastTime);
+
+      (axios.get as any).mockResolvedValueOnce({ data: freshData });
+
+      const records = await downloadFullScripMaster(testCachePath, 24);
+      expect(records[0].token).toBe('13');
+      expect(axios.get).toHaveBeenCalledTimes(1);
+    });
+
+    it('should resolve ABB token via resolveSpotTokenWithFallback using full master when local is NFO-only', async () => {
+      const mockFullMaster = [
+        { token: '13', symbol: 'ABB-EQ', name: 'ABB', exch_seg: 'NSE', instrumenttype: '' }
+      ];
+      (axios.get as any).mockResolvedValueOnce({ data: mockFullMaster });
+
+      const res = await resolveSpotTokenWithFallback('ABB');
+      expect(res).not.toBeNull();
+      expect(res?.symboltoken).toBe('13');
+      expect(res?.tradingsymbol).toBe('ABB-EQ');
+      expect(res?.exchange).toBe('NSE');
+    });
+
+    it('should return null for non-existent stock in full master', async () => {
+      (axios.get as any).mockResolvedValueOnce({ data: [] });
+      const res = await resolveSpotTokenWithFallback('NONEXISTENT_XYZ');
+      expect(res).toBeNull();
+    });
+  });
 });
+

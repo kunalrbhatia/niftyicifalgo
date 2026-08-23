@@ -8,3 +8,4 @@ test-scratch
 test-ledger
 ledger/*.jsonl
 !ledger/.gitkeep
+data/full-scrip-master.json

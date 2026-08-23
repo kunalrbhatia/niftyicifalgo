@@ -1,19 +1,20 @@
 ### Description
 
-Fixes per-underlying spot lookup in Strategy Brain so equity option positions (such as ABB or RELIANCE) fetch and evaluate against their actual equity spot prices instead of hardcoding the NIFTY index spot price. Candidate adjustment legs and strikes are also scaled and labeled according to the active underlying.
+Implements full scrip master fallback resolution and 24-hour disk caching in `scripMasterResolver.ts` so that equity positions (e.g. `ABB`, `RELIANCE`) correctly resolve their NSE cash equity spot instrument tokens when the local `scrip_master.json` is NFO-only.
 
 ### Changes
 
-- Added `strategy-brain/src/scripMasterResolver.ts` with `resolveSpotTokenFromScripMaster()` and `loadScripMaster()` to resolve NSE cash equity spot tokens from `scrip_master.json` and map NIFTY index to `99926000`.
-- Parameterized `fetchSpot(jwt?, underlying = 'NIFTY')` in `strategy-brain/src/broker.ts` to fetch equity spot quotes dynamically via SmartAPI `/getLtpData`.
-- Updated `SitrepCollector.buildFromBroker()` in `strategy-brain/src/sitrep.ts` to derive the underlying from `STRATEGY_PREFIX` or open positions and record `spotUnderlying` and `approximateSpot` in `marketContext`.
-- Updated `strategy-brain/src/research.ts` to construct candidate adjustment legs and strike intervals scaled to the target underlying.
-- Enhanced cycle header logging in `strategy-brain/src/orchestrator.ts` to display `(underlying: ABB, spot: ...)`.
-- Added unit tests in `strategy-brain/test/scripMasterResolver.test.ts` and extended `strategy-brain/test/broker.test.ts`.
-- Updated `README.md` with the new scrip master resolver and spot lookup functionality.
+- Added `downloadFullScripMaster(cachePath, ttlHours)` in `strategy-brain/src/scripMasterResolver.ts` with a 24h disk cache (`data/full-scrip-master.json`) to avoid repeated 37MB downloads.
+- Added `resolveSpotTokenWithFallback(underlying)` in `strategy-brain/src/scripMasterResolver.ts` to check NIFTY special case $\rightarrow$ local master $\rightarrow$ full master fallback.
+- Updated `fetchSpot(jwt?, underlying?, spotToken?)` in `strategy-brain/src/broker.ts` to accept pre-resolved spot tokens.
+- Updated `SitrepCollector.buildFromBroker()` in `strategy-brain/src/sitrep.ts` to use `resolveSpotTokenWithFallback()`.
+- Added `FULL_SCRIP_MASTER_PATH` and `FULL_SCRIP_MASTER_TTL_HOURS` to `strategy-brain/src/config.ts` and `.env.example`.
+- Added `data/full-scrip-master.json` to `strategy-brain/.gitignore`.
+- Added unit tests in `strategy-brain/test/scripMasterResolver.test.ts` and `strategy-brain/test/broker.test.ts`.
+- Updated `README.md` documentation.
 
 ### Verification
 
-- Ran `npm run verify` in `strategy-brain`: All 36 unit tests pass across 8 test suites and `tsc --noEmit` checks clean.
+- Ran `npm run verify` in `strategy-brain`: All 42 unit tests pass across 8 test files with clean `tsc --noEmit`.
 - Ran `npm run build` in `strategy-brain`: TypeScript compilation succeeded.
 - Verified README check via `node .agents/skills/readme-auto-update/scripts/check-readme.cjs`.
