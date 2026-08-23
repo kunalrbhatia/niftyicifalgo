@@ -1,19 +1,19 @@
 ### Description
 
-Connects the Strategy Brain to Angel One SmartAPI in read-only mode so it builds its Situation Report (SITREP) from real live broker positions, RMS margin (`utiliseddebits`), and Nifty spot price. Real live order placement remains strictly hard-blocked.
+Fixes per-underlying spot lookup in Strategy Brain so equity option positions (such as ABB or RELIANCE) fetch and evaluate against their actual equity spot prices instead of hardcoding the NIFTY index spot price. Candidate adjustment legs and strikes are also scaled and labeled according to the active underlying.
 
 ### Changes
 
-- Added `strategy-brain/src/broker.ts` read-only SmartAPI broker client with TOTP authentication and session token caching.
-- Added `strategy-brain/src/positionMapper.ts` to parse exchange trading symbols into structured legs and derive strategy names.
-- Updated `strategy-brain/src/sitrep.ts` with `SitrepCollector.buildFromBroker()` to ingest live positions and spot data.
-- Added `--live-sitrep` and `--real` CLI flags in `strategy-brain/src/orchestrator.ts`, with clear console notice when falling back to demo data.
-- Updated `strategy-brain/src/config.ts` and `.env.example` with SmartAPI configuration variables.
-- Added comprehensive unit tests in `strategy-brain/test/broker.test.ts` and `strategy-brain/test/positionMapper.test.ts`.
-- Updated `README.md` with broker adapter docs.
+- Added `strategy-brain/src/scripMasterResolver.ts` with `resolveSpotTokenFromScripMaster()` and `loadScripMaster()` to resolve NSE cash equity spot tokens from `scrip_master.json` and map NIFTY index to `99926000`.
+- Parameterized `fetchSpot(jwt?, underlying = 'NIFTY')` in `strategy-brain/src/broker.ts` to fetch equity spot quotes dynamically via SmartAPI `/getLtpData`.
+- Updated `SitrepCollector.buildFromBroker()` in `strategy-brain/src/sitrep.ts` to derive the underlying from `STRATEGY_PREFIX` or open positions and record `spotUnderlying` and `approximateSpot` in `marketContext`.
+- Updated `strategy-brain/src/research.ts` to construct candidate adjustment legs and strike intervals scaled to the target underlying.
+- Enhanced cycle header logging in `strategy-brain/src/orchestrator.ts` to display `(underlying: ABB, spot: ...)`.
+- Added unit tests in `strategy-brain/test/scripMasterResolver.test.ts` and extended `strategy-brain/test/broker.test.ts`.
+- Updated `README.md` with the new scrip master resolver and spot lookup functionality.
 
 ### Verification
 
-- Ran `npm run verify` in `strategy-brain`: All 29 unit tests pass and TypeScript check passed.
-- Ran `node dist/orchestrator.js --sitrep-only` in `strategy-brain`: Successfully emitted SITREP.
-- Verified README update rule with `node .agents/skills/readme-auto-update/scripts/check-readme.cjs`.
+- Ran `npm run verify` in `strategy-brain`: All 36 unit tests pass across 8 test suites and `tsc --noEmit` checks clean.
+- Ran `npm run build` in `strategy-brain`: TypeScript compilation succeeded.
+- Verified README check via `node .agents/skills/readme-auto-update/scripts/check-readme.cjs`.

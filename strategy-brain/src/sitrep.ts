@@ -51,6 +51,8 @@ export interface SituationReport {
   };
   marketContext: {
     niftySpot: number;
+    spotUnderlying?: string;
+    approximateSpot?: boolean;
     nifty5dReturnPct?: number;
     nifty20dVol?: number;
     vix?: number;
@@ -240,24 +242,8 @@ export class SitrepCollector {
    * Loads scrip master records if available on disk.
    */
   public static async loadScripMaster(filePath = config.SCRIP_MASTER_PATH): Promise<any[]> {
-    const candidates = [
-      path.resolve(filePath),
-      path.resolve(process.cwd(), '../scrip_master.json'),
-      path.resolve(process.cwd(), './scrip_master.json')
-    ];
-
-    for (const p of candidates) {
-      if (fs.existsSync(p)) {
-        try {
-          const content = await fs.promises.readFile(p, 'utf8');
-          return JSON.parse(content);
-        } catch {
-          // ignore error and check next candidate
-        }
-      }
-    }
-
-    return [];
+    const { loadScripMaster } = await import('./scripMasterResolver.js');
+    return loadScripMaster(filePath);
   }
 
   /**
@@ -277,7 +263,6 @@ export class SitrepCollector {
       const auth = await client.login();
       const rawPositions = await client.fetchPositions(auth.jwtToken);
       const marginUtilized = await client.fetchRMSMargin(auth.jwtToken).catch(() => 0);
-      const spot = await client.fetchSpot(auth.jwtToken).catch(() => 24500);
       const scripMaster = await this.loadScripMaster();
 
       // Filter to NFO / relevant strategy if requested
@@ -295,6 +280,32 @@ export class SitrepCollector {
       const legs = PositionMapper.mapBrokerPositionsToLegs(filteredPositions, scripMaster);
       const derivedStrategy = prefix || PositionMapper.deriveStrategyName(legs);
 
+      // Determine underlying root
+      let underlying = 'NIFTY';
+      if (prefix) {
+        underlying = prefix.replace(/[^A-Za-z]/g, '').toUpperCase();
+      } else if (legs.length > 0) {
+        const underlyings = new Set(
+          legs.map(l => PositionMapper.parseTradingSymbol(l.symbol)?.underlying || 'NIFTY')
+        );
+        if (underlyings.size === 1) {
+          underlying = Array.from(underlyings)[0];
+        } else if (underlyings.size > 1) {
+          console.warn(`[SitrepCollector] Positions span multiple underlyings (${Array.from(underlyings).join(', ')}). Using NIFTY primary spot.`);
+          underlying = 'NIFTY';
+        }
+      }
+
+      let approximateSpot = false;
+      let spot = 24500;
+      try {
+        spot = await client.fetchSpot(auth.jwtToken, underlying);
+      } catch (spotErr: any) {
+        console.warn(`[SitrepCollector] Spot fetch failed for ${underlying} (${spotErr.message}). Using fallback 24500.`);
+        approximateSpot = true;
+        spot = 24500;
+      }
+
       if (legs.length === 0) {
         const emptySitrep = this.buildSitrep({
           strategy: derivedStrategy,
@@ -302,7 +313,12 @@ export class SitrepCollector {
           spot,
           daysToT0: 0,
           marginUtilized,
-          exitThreshold: PositionMapper.computeExitThreshold(derivedStrategy, marginUtilized)
+          exitThreshold: PositionMapper.computeExitThreshold(derivedStrategy, marginUtilized),
+          marketContext: {
+            niftySpot: spot,
+            spotUnderlying: underlying,
+            approximateSpot
+          }
         });
         emptySitrep.status = 'NO_POSITION';
         return emptySitrep;
@@ -330,6 +346,8 @@ export class SitrepCollector {
         exitThreshold,
         marketContext: {
           niftySpot: spot,
+          spotUnderlying: underlying,
+          approximateSpot,
           isExpiryDay: minDaysToT0 === 0,
           daysToMonthlyExpiry: minDaysToT0
         }
@@ -342,7 +360,12 @@ export class SitrepCollector {
         spot: 24500,
         daysToT0: 0,
         marginUtilized: 0,
-        exitThreshold: 10000
+        exitThreshold: 10000,
+        marketContext: {
+          niftySpot: 24500,
+          spotUnderlying: strategyFilter ? strategyFilter.replace(/[^A-Za-z]/g, '').toUpperCase() : 'NIFTY',
+          approximateSpot: true
+        }
       });
       fallbackSitrep.status = 'NO_POSITION';
       return fallbackSitrep;

@@ -51,8 +51,9 @@ export class BrainOrchestrator {
     sitrep: SituationReport,
     options: { dryRun?: boolean; forceEvaluate?: boolean } = {}
   ): Promise<BrainCycleResult> {
+    const underlying = sitrep.marketContext.spotUnderlying || 'NIFTY';
     console.log(`\n======================================================`);
-    console.log(`🧠 [STRATEGY BRAIN] Starting Cycle for: ${sitrep.strategy}`);
+    console.log(`🧠 [STRATEGY BRAIN] Starting Cycle for: ${sitrep.strategy} (underlying: ${underlying}, spot: ${sitrep.spot})`);
     console.log(`Trigger: ${sitrep.triggerFired} | Spot: ${sitrep.spot} | MTM: ₹${sitrep.combinedPosition.combinedMtm}`);
     console.log(`======================================================`);
 

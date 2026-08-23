@@ -48,7 +48,8 @@ An automated, positional trading strategy for Nifty 50 monthly options using Ang
     - `optionChain.js`: Fetches LTPs, Greeks, and finds expiry dates.
 - `strategy-brain/`: **Strategy Brain (LLM-Driven Self-Healing Options Strategy Manager)**
   - `src/orchestrator.ts`: Autonomous self-healing loop (Trigger $\rightarrow$ SITREP $\rightarrow$ Research $\rightarrow$ Backtest $\rightarrow$ Score $\rightarrow$ Decide $\rightarrow$ Execute $\rightarrow$ Verify $\rightarrow$ Ledger). Supports `--live-sitrep` to watch live SmartAPI broker positions.
-  - `src/broker.ts`: Read-only SmartAPI broker adapter fetching live positions, RMS margin, and NIFTY 50 spot.
+  - `src/broker.ts`: Read-only SmartAPI broker adapter fetching live positions, RMS margin, and per-underlying spot.
+  - `src/scripMasterResolver.ts`: Resolves equity spot instrument tokens from `scrip_master.json` for per-underlying spot lookup (e.g., ABB, RELIANCE, NIFTY 50).
   - `src/positionMapper.ts`: Translates broker positions into Strategy Brain `LegPosition` objects and infers strategy names.
   - `src/safety.ts`: Safety rails, hard panic (`.panic`), soft pause (`.kill`), execution caps, and tier resolution.
   - `src/sitrep.ts`: Portfolio state collector, combined Greeks, short strike wall proximity monitoring, and `buildFromBroker()`.
