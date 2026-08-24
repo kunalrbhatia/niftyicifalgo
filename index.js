@@ -20,6 +20,7 @@ const moment = require('moment-timezone');
 async function main() {
   logger.info('=== Nifty Positional Algo Started ===');
   let summary = '🤖 <b>Nifty Algo Daily Summary</b>\n\n';
+  let totalNetPnL = null;
 
   try {
     // STEP 0: Ensure scrip master is fresh (Updated daily at 9 AM IST)
@@ -179,20 +180,10 @@ async function main() {
         );
  
         if (relevant.length > 0) {
-          summary += '\n📊 <b>Active Monthly Nifty Positions P&L:</b>\n';
           relevant.forEach(p => {
-            const qty = parseInt(p.netqty);
-            const side = qty > 0 ? 'BUY' : 'SELL';
-            const absQty = Math.abs(qty);
-            const realised = parseFloat(p.realised || 0);
-            const unrealised = parseFloat(p.unrealised || 0);
             const totalLegPnL = parseFloat(p.pnl || 0);
-            
-            summary += `\n▫️ <b>${p.tradingsymbol}</b> (${side} x ${absQty})\n`;
-            summary += `   📍 <b>LTP:</b> ${p.ltp}\n`;
-            summary += `   💵 <b>Realised P&L:</b> ₹${realised.toFixed(2)}\n`;
-            summary += `   📈 <b>Unrealised P&L:</b> ₹${unrealised.toFixed(2)}\n`;
-            summary += `   💰 <b>Net P&L:</b> ₹${totalLegPnL.toFixed(2)}\n`;
+            // Accumulate total net P&L across all legs
+            totalNetPnL = (totalNetPnL || 0) + totalLegPnL;
           });
         }
       }
@@ -201,8 +192,11 @@ async function main() {
     }
 
     logger.info('=== Daily Algo Run Completed ===');
-    const monthlyPnL = pnlTracker.getMonthlyPnL();
-    summary += `\n💰 <b>Current Month P&L:</b> ${monthlyPnL.toFixed(2)}`;
+    // Prepend total net P&L at the top of the summary if we have positions
+    if (totalNetPnL !== null) {
+      const emoji = totalNetPnL >= 0 ? '🟢' : '🔴';
+      summary = `💰 <b>Total Net P&L:</b> ${emoji} <b>₹${totalNetPnL.toFixed(2)}</b>\n\n` + summary;
+    }
     summary += '\n\n✨ <b>Algo run completed successfully.</b>';
     await notify(summary);
     process.exit(0);
