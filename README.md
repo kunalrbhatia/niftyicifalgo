@@ -24,6 +24,33 @@ An automated, positional trading strategy for Nifty 50 monthly options using Ang
   - Automatically exits **ITM (In-The-Money) legs** via Market orders.
   - OTM legs are left to expire worthless to save on brokerage.
 
+## 📚 Strategy Origin & Verification
+
+This algo is a **faithful 1:1 implementation of the Theta Gainers / Reyaansh Upadhyay IC→IF method** — the same strategy explained in the Face2Face Podcast 1M episode *"How this Options Seller makes 4% Return every month!!"* (https://www.youtube.com/watch?v=Pgs77xukT7Q), with the iron-fly mechanics in the companion video *"Safest Options Selling Strategy | Iron Fly Strategy"* (https://www.youtube.com/watch?v=7FmXCkfI05w).
+
+### Verified mapping (video → code)
+
+| Theta Gainers (video) | This algo | Match |
+|---|---|---|
+| Monthly NIFTY iron condor | Monthly expiry, positional CARRYFORWARD | ✅ |
+| Sell ~±25 delta | `sellDelta: 25` → deltaFinder closest to ±0.25 | ✅ |
+| Buy wings ~±17 delta | `buyDelta: 17` → closest to ±0.17 | ✅ |
+| "Green zone" = the strikes you sold | Wall check: `spot ≤ sellPut.strike` OR `spot ≥ sellCall.strike` | ✅ exact |
+| Move outside green zone → convert IC→IF | `adjustCallSide()` / `adjustPutSide()` — roll the OPPOSITE side to ATM | ✅ exact |
+| "Close 2, open 2" rebalance | Buy back old wing (1) + sell new ATM (1) per side | ✅ exact |
+| Convert exactly once per cycle | `state.adjusted` flag → skip further checks | ✅ exact |
+| Exit expiry ~15:25 | `finalExitTime: 15:25`, ITM legs only | ✅ |
+
+*Verified 2026-08 against `wallMonitor.js`, `adjustEngine.js`, `deltaFinder.js`, `config.js`.*
+
+### Where the algo ends and a "brain" begins
+
+The code automates the rule; it does NOT decide:
+1. **Roll distance** — ATM (current) vs 50%-of-width vs 25Δ (candidate sweep for the strategy brain).
+2. **Rolling the tested side too** — defensive vs aggressive conversion.
+3. **When NOT to convert** — e.g., remaining time-value < roll cost, or expiry < 2 days away.
+4. **Early warning** — triggering the wall check at 50% of distance-to-strike for better roll prices.
+
 ## 🛠️ Key Features
 
 - **Dynamic IP Detection:** Automatically detects your server's public IPv4 address for every request to Angel One's SmartAPI, preventing "Unregistered IP" errors without manual configuration.
