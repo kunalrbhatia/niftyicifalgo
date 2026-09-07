@@ -195,6 +195,37 @@ const exportsObj = {
     }
 
     return enriched;
+  },
+
+  resolveStrikeSecurity: async function(jwtToken, strike, optionType, targetExpiry = null) {
+    const fs = require('fs');
+    const path = require('path');
+    const masterPath = path.join(__dirname, '../scrip_master.json');
+
+    if (!fs.existsSync(masterPath)) {
+      throw new Error('Scrip master file not found. Please run filter_scrips.js first.');
+    }
+
+    const master = JSON.parse(fs.readFileSync(masterPath, 'utf8'));
+    const expiryDate = targetExpiry || await exportsObj.getExpiryDate();
+    const type = optionType.toUpperCase();
+
+    const match = master.find(s =>
+      (parseFloat(s.strike) / 100 === strike || parseFloat(s.strike) === strike) &&
+      s.symbol.endsWith(type) &&
+      s.expiry === expiryDate
+    );
+
+    if (match) {
+      return {
+        strike: strike,
+        tradingSymbol: match.symbol,
+        token: match.token,
+        expiry: expiryDate
+      };
+    } else {
+      throw new Error(`Failed to find security info for ${strike} ${type} on ${expiryDate} in master file.`);
+    }
   }
 };
 

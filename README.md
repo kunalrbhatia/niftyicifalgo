@@ -18,6 +18,9 @@ An automated, positional trading strategy for Nifty 50 monthly options using Ang
   - If Spot price $\le$ Short Put strike OR Spot price $\ge$ Short Call strike:
     - The opposite side is rolled to ATM (At-The-Money).
     - The Iron Condor is converted into an **Iron Butterfly**.
+    - Pre-validates order payloads against the scrip master to guarantee valid trading symbols and tokens.
+    - Sells the new ATM leg first, then closes the existing long wing via a SELL order.
+    - Updates state to adjusted only upon successful order placement, alerting on any failure.
     - This adjustment happens **exactly once** per expiry cycle.
 - **Exit Logic:**
   - On Expiry Day at **03:25 PM IST**.

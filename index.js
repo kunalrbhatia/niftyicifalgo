@@ -86,6 +86,8 @@ async function main() {
         const adjustmentResult = await performSingleWallCheck(jwtToken);
         if (adjustmentResult && adjustmentResult.adjusted) {
             summary += `⚠️ <b>Adjustment Performed!</b> Side: ${adjustmentResult.side}\n`;
+        } else if (adjustmentResult && adjustmentResult.error) {
+            summary += `⚠️ <b>Adjustment FAILED:</b> ${adjustmentResult.error} — manual intervention may be needed\n`;
         } else {
             summary += '🛡 Wall check: All good, no adjustment needed.\n';
         }

@@ -1,4 +1,4 @@
-const { getNiftySpotPrice } = require('./optionChain');
+const optionChain = require('./optionChain');
 const { getPosition } = require('./positionTracker');
 const { adjustCallSide, adjustPutSide } = require('./adjustEngine');
 const logger = require('../utils/logger');
@@ -24,20 +24,32 @@ async function performSingleWallCheck(jwtToken) {
       return { adjusted: false, reason: 'MISSING_LEGS' };
     }
 
-    const spotPrice = await getNiftySpotPrice(jwtToken);
+    const spotPrice = await optionChain.getNiftySpotPrice(jwtToken);
     logger.info(`Positional Wall Check: Nifty Spot = ${spotPrice}`);
 
     // SELL PUT strike is the PUT WALL
     if (spotPrice <= state.legs.sellPut.strike) {
       logger.info(`PUT Wall Hit! Spot ${spotPrice} <= Strike ${state.legs.sellPut.strike}`);
-      await adjustCallSide(jwtToken);
-      return { adjusted: true, side: 'PUT' };
+      const res = await adjustCallSide(jwtToken);
+      if (res && res.success) {
+        return { adjusted: true, side: 'PUT', orderIds: res.orderIds };
+      } else {
+        const errMsg = res && res.error ? res.error : 'Adjustment failed';
+        logger.error(`CALL side adjustment failed: ${errMsg}`);
+        return { adjusted: false, side: 'PUT', error: errMsg };
+      }
     } 
     // SELL CALL strike is the CALL WALL
     else if (spotPrice >= state.legs.sellCall.strike) {
       logger.info(`CALL Wall Hit! Spot ${spotPrice} >= Strike ${state.legs.sellCall.strike}`);
-      await adjustPutSide(jwtToken);
-      return { adjusted: true, side: 'CALL' };
+      const res = await adjustPutSide(jwtToken);
+      if (res && res.success) {
+        return { adjusted: true, side: 'CALL', orderIds: res.orderIds };
+      } else {
+        const errMsg = res && res.error ? res.error : 'Adjustment failed';
+        logger.error(`PUT side adjustment failed: ${errMsg}`);
+        return { adjusted: false, side: 'CALL', error: errMsg };
+      }
     } else {
       logger.info('No wall breach detected. Position remains as is.');
       return { adjusted: false, reason: 'NO_BREACH' };
