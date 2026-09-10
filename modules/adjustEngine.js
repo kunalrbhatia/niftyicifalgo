@@ -19,6 +19,12 @@ async function adjustCallSide(jwtToken) {
       return { success: false, error: 'ALREADY_ADJUSTED' };
     }
 
+    const brokerCheck = await positionTracker.isAdjustmentAlreadyDone(jwtToken, state.expiryDate);
+    if (brokerCheck && brokerCheck.adjusted) {
+      logger.info(`Adjustment already present at broker (side: ${brokerCheck.side}, counts: ${JSON.stringify(brokerCheck.counts)}). Skipping CALL side adjustment.`);
+      return { success: false, error: 'ALREADY_ADJUSTED_BROKER' };
+    }
+
     logger.info('PUT wall hit. Adjusting CALL side to ATM...');
     
     const spotPrice = await optionChain.getNiftySpotPrice(jwtToken);
@@ -105,6 +111,12 @@ async function adjustPutSide(jwtToken) {
     if (state.adjusted) {
       logger.info('Position already adjusted. Skipping PUT side adjustment.');
       return { success: false, error: 'ALREADY_ADJUSTED' };
+    }
+
+    const brokerCheck = await positionTracker.isAdjustmentAlreadyDone(jwtToken, state.expiryDate);
+    if (brokerCheck && brokerCheck.adjusted) {
+      logger.info(`Adjustment already present at broker (side: ${brokerCheck.side}, counts: ${JSON.stringify(brokerCheck.counts)}). Skipping PUT side adjustment.`);
+      return { success: false, error: 'ALREADY_ADJUSTED_BROKER' };
     }
 
     logger.info('CALL wall hit. Adjusting PUT side to ATM...');

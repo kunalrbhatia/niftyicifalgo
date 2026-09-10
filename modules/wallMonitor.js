@@ -1,6 +1,7 @@
 const optionChain = require('./optionChain');
-const { getPosition } = require('./positionTracker');
+const { getPosition, isAdjustmentAlreadyDone } = require('./positionTracker');
 const { adjustCallSide, adjustPutSide } = require('./adjustEngine');
+const notifier = require('../utils/notifier');
 const logger = require('../utils/logger');
 
 /**
@@ -12,9 +13,26 @@ async function performSingleWallCheck(jwtToken) {
   try {
     const state = getPosition();
     
-    // If already adjusted, we don't do further adjustments in this version
+    // Live broker-authoritative check before any adjustment / wall logic
+    let brokerCheck;
+    try {
+      brokerCheck = await isAdjustmentAlreadyDone(jwtToken, state.expiryDate);
+    } catch (verifyError) {
+      logger.error(`Broker verification failed during wall check: ${verifyError.message}`, verifyError);
+      await notifier.notify(`🚨 <b>ADJUSTMENT SKIPPED:</b> Broker verification failed (${verifyError.message}). Manual check required!`);
+      return { adjusted: false, reason: 'VERIFY_FAILED', error: verifyError.message };
+    }
+
+    if (brokerCheck && brokerCheck.adjusted) {
+      state.adjusted = true;
+      state.wallHitSide = brokerCheck.side;
+      logger.info(`Adjustment already present at broker (side: ${brokerCheck.side}, counts: ${JSON.stringify(brokerCheck.counts)}). Skipping adjustment.`);
+      return { adjusted: false, reason: 'ALREADY_ADJUSTED_BROKER' };
+    }
+
+    // If already adjusted in-memory, we don't do further adjustments in this version
     if (state.adjusted) {
-      logger.info('Position already adjusted. Skipping wall check.');
+      logger.info('Position already adjusted in memory. Skipping wall check.');
       return { adjusted: false, reason: 'ALREADY_ADJUSTED' };
     }
 
