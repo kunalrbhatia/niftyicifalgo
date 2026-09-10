@@ -1,5 +1,6 @@
 const logger = require('../utils/logger');
-const { getPublicIP, getPositions } = require('../utils/helpers');
+const helpers = require('../utils/helpers');
+const { getPublicIP, getPositions } = helpers;
 require('dotenv').config();
 
 const BASE_URL = 'https://apiconnect.angelone.in';
@@ -40,7 +41,7 @@ function initPosition(strikes, orderIds, expiryDate) {
  */
 async function hasOpenPositions(jwtToken) {
   try {
-    const data = await getPositions(jwtToken);
+    const data = await helpers.getPositions(jwtToken);
     
     if (data.status === true) {
       const positions = data.data;
@@ -76,7 +77,7 @@ async function hasOpenPositions(jwtToken) {
  */
 async function reconstructState(jwtToken) {
   try {
-    const data = await getPositions(jwtToken);
+    const data = await helpers.getPositions(jwtToken);
  
     if (data.status === true && data.data) {
       const positions = data.data;
@@ -116,7 +117,9 @@ async function reconstructState(jwtToken) {
  
       logger.info(`Reconstructing state from ${relevant.length} live positions for ${expiryTag}...`);
       
-      // Reset state legs
+      // Reset state legs and adjustment flags
+      state.adjusted = false;
+      state.wallHitSide = null;
       state.legs = {
         sellPut:  null,
         buyPut:   null,
@@ -224,11 +227,110 @@ function updateLegStatus(legName, status) {
   }
 }
 
+/**
+ * Broker-authoritative check: has the IC2IF adjustment already been applied?
+ * Reads LIVE positions from the broker API every call. Never uses cached state.
+ * @param {string} jwtToken
+ * @param {string|null} expiryStr  // e.g. '29SEP2026'; when null, infer from open NIFTY legs
+ * @returns {Promise<{adjusted:boolean, side:'PUT'|'CALL'|null, reason:string, counts:object}>}
+ */
+async function isAdjustmentAlreadyDone(jwtToken, expiryStr = null) {
+  const data = await helpers.getPositions(jwtToken);
+  if (!data || data.status !== true) {
+    const errMsg = data && data.message ? data.message : 'Broker getPositions returned status false or empty response';
+    throw new Error(`Broker API failure: ${errMsg}`);
+  }
+
+  const moment = require('moment-timezone');
+  let expiryTag = null;
+  if (expiryStr) {
+    const m = moment(expiryStr, ['DDMMMYYYY', 'DDMMMYY', 'YYYY-MM-DD']);
+    expiryTag = m.isValid() ? m.format('DDMMMYY').toUpperCase() : expiryStr.toUpperCase();
+  }
+
+  const positions = data.data || [];
+
+  if (!expiryTag) {
+    const openNiftyPos = positions.find(p =>
+      p.tradingsymbol &&
+      p.tradingsymbol.toUpperCase().startsWith('NIFTY') &&
+      parseInt(p.netqty, 10) !== 0
+    );
+    if (openNiftyPos) {
+      const match = openNiftyPos.tradingsymbol.toUpperCase().match(/^NIFTY(\d{2}[A-Z]{3}\d{2})/);
+      if (match) {
+        expiryTag = match[1];
+      }
+    }
+  }
+
+  const relevantPositions = positions.filter(p => {
+    if (!p.tradingsymbol || !p.tradingsymbol.toUpperCase().startsWith('NIFTY')) return false;
+    if (expiryTag && !p.tradingsymbol.toUpperCase().includes(expiryTag)) return false;
+    const qty = parseInt(p.netqty, 10);
+    return !isNaN(qty) && qty !== 0;
+  });
+
+  let shortCallCount = 0;
+  let longCallCount = 0;
+  let shortPutCount = 0;
+  let longPutCount = 0;
+
+  for (const p of relevantPositions) {
+    const qty = parseInt(p.netqty, 10);
+    const symbol = p.tradingsymbol.toUpperCase();
+    const isCall = symbol.endsWith('CE');
+    const isPut = symbol.endsWith('PE');
+
+    if (isCall) {
+      if (qty < 0) {
+        shortCallCount++;
+      } else if (qty > 0) {
+        longCallCount++;
+      }
+    } else if (isPut) {
+      if (qty < 0) {
+        shortPutCount++;
+      } else if (qty > 0) {
+        longPutCount++;
+      }
+    }
+  }
+
+  const callSideAdjusted = (shortCallCount >= 2) || (shortCallCount >= 1 && longCallCount === 0);
+  const putSideAdjusted  = (shortPutCount  >= 2) || (shortPutCount  >= 1 && longPutCount  === 0);
+
+  const adjusted = callSideAdjusted || putSideAdjusted;
+  const side = callSideAdjusted ? 'PUT' : (putSideAdjusted ? 'CALL' : null);
+
+  let reason = 'UNADJUSTED';
+  if (callSideAdjusted && putSideAdjusted) {
+    reason = 'BOTH_SIDES_ADJUSTED';
+  } else if (callSideAdjusted) {
+    reason = 'CALL_SIDE_ADJUSTED';
+  } else if (putSideAdjusted) {
+    reason = 'PUT_SIDE_ADJUSTED';
+  } else if (relevantPositions.length === 0) {
+    reason = 'NO_RELEVANT_POSITIONS';
+  }
+
+  const counts = { shortCallCount, longCallCount, shortPutCount, longPutCount };
+  logger.info(`Broker adjustment check: adjusted=${adjusted}, side=${side}, reason=${reason}, counts=${JSON.stringify(counts)}`);
+
+  return {
+    adjusted,
+    side,
+    reason,
+    counts
+  };
+}
+
 module.exports = {
   initPosition,
   markAdjusted,
   getPosition,
   updateLegStatus,
   hasOpenPositions,
-  reconstructState
+  reconstructState,
+  isAdjustmentAlreadyDone
 };
